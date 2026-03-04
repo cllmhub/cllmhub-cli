@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="oikosindex/cllmhub-cli"
+REPO="cllmhub/cllmhub-cli"
 BINARY="cllmhub"
 INSTALL_DIR="${HOME}/.cllmhub/bin"
 

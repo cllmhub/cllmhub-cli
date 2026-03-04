@@ -8,9 +8,9 @@ import (
 	"regexp"
 	"syscall"
 
-	"github.com/oikosindex/cllmhub-cli/internal/auth"
-	"github.com/oikosindex/cllmhub-cli/internal/backend"
-	"github.com/oikosindex/cllmhub-cli/internal/provider"
+	"github.com/cllmhub/cllmhub-cli/internal/auth"
+	"github.com/cllmhub/cllmhub-cli/internal/backend"
+	"github.com/cllmhub/cllmhub-cli/internal/provider"
 	"github.com/spf13/cobra"
 )
 

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/oikosindex/cllmhub-cli/internal/audit"
-	"github.com/oikosindex/cllmhub-cli/internal/auth"
-	"github.com/oikosindex/cllmhub-cli/internal/backend"
-	"github.com/oikosindex/cllmhub-cli/internal/hub"
+	"github.com/cllmhub/cllmhub-cli/internal/audit"
+	"github.com/cllmhub/cllmhub-cli/internal/auth"
+	"github.com/cllmhub/cllmhub-cli/internal/backend"
+	"github.com/cllmhub/cllmhub-cli/internal/hub"
 	"golang.org/x/time/rate"
 )
 

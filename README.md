@@ -1,6 +1,6 @@
 # cLLMHub CLI
 
-The command-line interface for [cLLMHub](https://github.com/oikosindex/cllmhub) — turn your local LLM into a production API.
+The command-line interface for [cLLMHub](https://github.com/cllmhub/cllmhub) — turn your local LLM into a production API.
 
 ## What it does
 
@@ -11,10 +11,13 @@ The command-line interface for [cLLMHub](https://github.com/oikosindex/cllmhub) 
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/oikosindex/cllmhub-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cllmhub/cllmhub-cli/main/install.sh | sh
+
+# Authenticate
+cllmhub login
 
 # Publish a model (requires Ollama or another backend running)
-cllmhub publish --model llama3 --backend ollama --token YOUR_PROVIDER_TOKEN
+cllmhub publish --model llama3 --backend ollama
 ```
 
 ## Installation
@@ -34,7 +37,7 @@ Download from your hub's Settings > Downloads page. Available for:
 Requires Go 1.22+.
 
 ```bash
-git clone https://github.com/oikosindex/cllmhub-cli.git
+git clone https://github.com/cllmhub/cllmhub-cli.git
 cd cllmhub-cli
 make build
 # Binary is at bin/cllmhub
@@ -57,7 +60,6 @@ Flags:
   --model,   -m   Model name to publish (required)
   --backend, -b   Backend type: ollama | vllm | llamacpp | custom (default: ollama)
   --backend-url   Backend endpoint URL (overrides default for the backend type)
-  --token,   -t   Provider token from your dashboard (required)
   --hub-url       Hub gateway URL (default: https://cllmhub.com)
 ```
 

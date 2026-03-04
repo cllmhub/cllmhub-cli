@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/oikosindex/cllmhub-cli/internal/auth"
+	"github.com/cllmhub/cllmhub-cli/internal/auth"
 	"github.com/spf13/cobra"
 )
 

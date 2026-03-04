@@ -1,4 +1,4 @@
-module github.com/oikosindex/cllmhub-cli
+module github.com/cllmhub/cllmhub-cli
 
 go 1.24.0
 

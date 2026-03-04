@@ -26,7 +26,7 @@ var updateCmd = &cobra.Command{
 }
 
 const (
-	repo      = "oikosindex/cllmhub-cli"
+	repo      = "cllmhub/cllmhub-cli"
 	binaryName = "cllmhub"
 )
 
