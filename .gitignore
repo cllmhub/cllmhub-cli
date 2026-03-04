@@ -1,5 +1,5 @@
 bin/
-cllmhub
+/cllmhub
 *.exe
 .DS_Store
 .claude/

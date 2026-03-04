@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -20,7 +19,7 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update cllmhub to the latest version",
-	Long:  `Update the CLI binary to the latest release. Uses go install if Go is available, otherwise downloads a pre-built binary.`,
+	Long:  `Download and install the latest release binary from GitHub.`,
 	Example: `  cllmhub update`,
 	RunE:  runUpdate,
 }
@@ -35,21 +34,7 @@ type githubRelease struct {
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	// Try go install first
-	if goPath, err := exec.LookPath("go"); err == nil {
-		fmt.Println("Go found, updating via go install...")
-		install := exec.Command(goPath, "install", fmt.Sprintf("github.com/%s/cmd/%s@latest", repo, binaryName))
-		install.Stdout = os.Stdout
-		install.Stderr = os.Stderr
-		if err := install.Run(); err != nil {
-			return fmt.Errorf("go install failed: %w", err)
-		}
-		fmt.Println("Updated successfully.")
-		return nil
-	}
-
-	// Fall back to downloading pre-built binary
-	fmt.Println("Go not found, downloading pre-built binary...")
+	fmt.Println("Checking for updates...")
 
 	version, err := getLatestVersion()
 	if err != nil {
