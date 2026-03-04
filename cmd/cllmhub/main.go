@@ -7,13 +7,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var hubURL string
+var (
+	hubURL  string
+	Version = "dev"
+)
 
 var rootCmd = &cobra.Command{
-	Use:   "cllmhub",
-	Short: "cLLMHub CLI - Turn your local LLM into a production API",
-	Long: `cLLMHub turns your local LLM into a production API.
+	Use:     "cllmhub",
+	Short:   "cLLMHub CLI - Turn your local LLM into a production API",
+	Long:    `cLLMHub turns your local LLM into a production API.
 Publish models, create tokens, and share access with anyone.`,
+	Version: Version,
 }
 
 func init() {
