@@ -41,6 +41,11 @@ func (o *Ollama) Name() string {
 	return "ollama"
 }
 
+// URL returns the backend endpoint URL
+func (o *Ollama) URL() string {
+	return o.url
+}
+
 // ollamaRequest is the Ollama API request format
 type ollamaRequest struct {
 	Model  string `json:"model"`

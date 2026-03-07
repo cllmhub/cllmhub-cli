@@ -21,6 +21,14 @@ The CLI will automatically detect the authorization and save your credentials.`,
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
+	// Clean up any existing credentials before starting a new login
+	if refreshToken, err := auth.LoadRefreshToken(); err == nil {
+		revokeCtx, revokeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer revokeCancel()
+		_ = auth.RevokeToken(revokeCtx, hubURL, refreshToken)
+	}
+	_ = auth.RemoveCredentials()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 

@@ -48,6 +48,11 @@ func (v *VLLM) Name() string {
 	return "vllm"
 }
 
+// URL returns the backend endpoint URL
+func (v *VLLM) URL() string {
+	return v.url
+}
+
 // openAIRequest is the OpenAI-compatible request format
 type openAIRequest struct {
 	Model       string  `json:"model"`

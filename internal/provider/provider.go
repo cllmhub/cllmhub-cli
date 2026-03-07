@@ -24,10 +24,11 @@ type Provider struct {
 	hub         *hub.HubClient
 	hubCfg      hub.ConnectConfig
 
-	mu           sync.Mutex
-	requestCount int64
-	queueDepth   int
-	startTime    time.Time
+	mu            sync.Mutex
+	requestCount  int64
+	queueDepth    int
+	startTime     time.Time
+	modelServerUp bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -89,14 +90,15 @@ func New(cfg Config) (*Provider, error) {
 	}
 
 	p := &Provider{
-		id:          providerID,
-		model:       cfg.Model,
-		description: cfg.Description,
-		backend:     b,
-		hub:         hubClient,
-		hubCfg:      hubCfg,
-		startTime:   time.Now(),
-		tokenMgr:    cfg.TokenManager,
+		id:            providerID,
+		model:         cfg.Model,
+		description:   cfg.Description,
+		backend:       b,
+		hub:           hubClient,
+		hubCfg:        hubCfg,
+		startTime:     time.Now(),
+		modelServerUp: true,
+		tokenMgr:      cfg.TokenManager,
 	}
 
 	// Set up audit logger
@@ -154,7 +156,11 @@ func (p *Provider) Start(ctx context.Context) error {
 	}
 }
 
-const maxReconnectAttempts = 5
+const (
+	maxReconnectAttempts    = 5
+	maxHealthCheckAttempts  = 5
+	healthCheckInterval     = 60 * time.Second
+)
 
 // reconnectLoop tries to re-establish the hub WebSocket once per minute.
 // Returns true on success, false if the context was cancelled or attempts exhausted.
@@ -193,6 +199,80 @@ func (p *Provider) reconnectLoop() bool {
 	return false
 }
 
+// onModelServerDown is triggered when a backend request fails with a connection error.
+// It sends an alert, runs health checks, and either recovers or shuts down.
+func (p *Provider) onModelServerDown() {
+	p.mu.Lock()
+	if !p.modelServerUp {
+		p.mu.Unlock()
+		return // already in recovery
+	}
+	p.modelServerUp = false
+	p.mu.Unlock()
+
+	fmt.Printf("\n⚠ Model server unreachable: %s\n", p.backend.URL())
+	fmt.Printf("  Attempting recovery — %d checks, 60 seconds apart...\n", maxHealthCheckAttempts)
+
+	// Alert 1: model_server_unreachable
+	p.hub.SendAlert(hub.Alert{
+		ProviderID: p.id,
+		Model:      p.model,
+		AlertType:  "model_server_unreachable",
+		Message:    fmt.Sprintf("Model server unreachable at %s, attempting recovery (%d attempts)", p.backend.URL(), maxHealthCheckAttempts),
+		Timestamp:  time.Now(),
+	})
+
+	ticker := time.NewTicker(healthCheckInterval)
+	defer ticker.Stop()
+
+	for attempt := 1; attempt <= maxHealthCheckAttempts; attempt++ {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+			err := p.backend.Health(ctx)
+			cancel()
+
+			if err != nil {
+				fmt.Printf("⚠ Health check %d/%d... failed\n", attempt, maxHealthCheckAttempts)
+				continue
+			}
+
+			// Recovered
+			p.mu.Lock()
+			p.modelServerUp = true
+			p.mu.Unlock()
+
+			fmt.Printf("✓ Model server recovered\n")
+
+			// Alert 3: model_server_recovered
+			p.hub.SendAlert(hub.Alert{
+				ProviderID: p.id,
+				Model:      p.model,
+				AlertType:  "model_server_recovered",
+				Message:    "Model server recovered",
+				Timestamp:  time.Now(),
+			})
+			return
+		}
+	}
+
+	// All attempts failed
+	fmt.Printf("✗ Model server down after %d attempts, shutting down\n", maxHealthCheckAttempts)
+
+	// Alert 2: model_server_down
+	p.hub.SendAlert(hub.Alert{
+		ProviderID: p.id,
+		Model:      p.model,
+		AlertType:  "model_server_down",
+		Message:    fmt.Sprintf("Model server down after %d attempts, provider shutting down", maxHealthCheckAttempts),
+		Timestamp:  time.Now(),
+	})
+
+	p.Stop()
+}
+
 // CloseConnection closes the current WebSocket without stopping the provider,
 // allowing the reconnect loop in Start to re-establish the connection.
 func (p *Provider) CloseConnection() {
@@ -217,6 +297,15 @@ func (p *Provider) Stop() {
 
 // handleRequest processes incoming inference requests from the hub
 func (p *Provider) handleRequest(req hub.RequestMsg) {
+	// Reject requests while model server is down
+	p.mu.Lock()
+	up := p.modelServerUp
+	p.mu.Unlock()
+	if !up {
+		p.hub.SendError(req.RequestID, "model server temporarily unavailable")
+		return
+	}
+
 	// Rate limit check
 	if p.limiter != nil && !p.limiter.Allow() {
 		p.hub.SendError(req.RequestID, "rate limit exceeded")
@@ -264,6 +353,11 @@ func sanitizeError(requestID string, err error) string {
 func (p *Provider) handleNonStreamingRequest(req hub.RequestMsg, backendReq *backend.Request, start time.Time) {
 	resp, err := p.backend.Complete(p.ctx, backendReq)
 	if err != nil {
+		if backend.IsConnectionError(err) {
+			p.hub.SendError(req.RequestID, "model server temporarily unavailable")
+			go p.onModelServerDown()
+			return
+		}
 		msg := sanitizeError(req.RequestID, err)
 		p.hub.SendError(req.RequestID, msg)
 		p.audit.Log(audit.Entry{
@@ -305,6 +399,11 @@ func (p *Provider) handleStreamingRequest(req hub.RequestMsg, backendReq *backen
 	})
 
 	if err != nil {
+		if backend.IsConnectionError(err) {
+			p.hub.SendError(req.RequestID, "model server temporarily unavailable")
+			go p.onModelServerDown()
+			return
+		}
 		msg := sanitizeError(req.RequestID, err)
 		p.hub.SendError(req.RequestID, msg)
 		p.audit.Log(audit.Entry{
@@ -364,7 +463,18 @@ func (p *Provider) heartbeatLoop(ctx context.Context) {
 func (p *Provider) sendHeartbeat() {
 	p.mu.Lock()
 	queueDepth := p.queueDepth
+	up := p.modelServerUp
 	p.mu.Unlock()
+
+	// Check model server health on each heartbeat
+	if up {
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		err := p.backend.Health(ctx)
+		cancel()
+		if err != nil && backend.IsConnectionError(err) {
+			go p.onModelServerDown()
+		}
+	}
 
 	var token string
 	if p.tokenMgr != nil {

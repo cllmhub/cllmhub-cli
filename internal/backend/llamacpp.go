@@ -40,6 +40,11 @@ func (l *LlamaCpp) Name() string {
 	return "llama.cpp"
 }
 
+// URL returns the backend endpoint URL
+func (l *LlamaCpp) URL() string {
+	return l.url
+}
+
 // llamaCppRequest is the llama.cpp server request format
 type llamaCppRequest struct {
 	Prompt      string  `json:"prompt"`

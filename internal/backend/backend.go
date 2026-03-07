@@ -2,15 +2,20 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
+	"syscall"
 )
 
 // Backend defines the interface for LLM inference backends
 type Backend interface {
 	// Name returns the backend type name
 	Name() string
+
+	// URL returns the backend endpoint URL
+	URL() string
 
 	// Complete sends a prompt and returns the full completion
 	Complete(ctx context.Context, req *Request) (*Response, error)
@@ -66,6 +71,26 @@ func CheckInsecureAPIKey(rawURL, apiKey string) error {
 		return nil
 	}
 	return fmt.Errorf("refusing to send API key over plain HTTP to remote host %q; use HTTPS or remove the API key", host)
+}
+
+// IsConnectionError returns true if the error indicates the model server
+// is unreachable (connection refused, timeout, no route, etc.).
+func IsConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return true
+	}
+	return false
 }
 
 // New creates a backend based on the config type

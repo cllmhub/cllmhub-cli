@@ -58,6 +58,11 @@ func (c *Custom) Name() string {
 	return "custom"
 }
 
+// URL returns the backend endpoint URL
+func (c *Custom) URL() string {
+	return c.url
+}
+
 // customRequest is the simple request format for custom backends
 type customRequest struct {
 	Prompt      string  `json:"prompt"`

@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -266,6 +267,49 @@ func (c *HubClient) SendHeartbeatWithToken(queueDepth int, gpuUtil float64, toke
 		msg["token"] = token
 	}
 	return c.writeJSON(msg)
+}
+
+// Alert represents a CLI alert sent to the gateway.
+type Alert struct {
+	ProviderID string `json:"provider_id"`
+	Model      string `json:"model"`
+	AlertType  string `json:"alert_type"`
+	Message    string `json:"message"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+// SendAlert posts an alert to the gateway's /api/cli-alerts endpoint.
+func (c *HubClient) SendAlert(alert Alert) {
+	body, err := json.Marshal(alert)
+	if err != nil {
+		log.Printf("failed to marshal alert: %v", err)
+		return
+	}
+
+	u, err := url.Parse(c.hubURL)
+	if err != nil {
+		log.Printf("failed to parse hub URL for alert: %v", err)
+		return
+	}
+	u.Path = "/api/cli-alerts"
+
+	req, err := http.NewRequest("POST", u.String(), bytes.NewReader(body))
+	if err != nil {
+		log.Printf("failed to create alert request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("failed to send alert: %v", err)
+		return
+	}
+	resp.Body.Close()
 }
 
 // Close closes the WebSocket connection.
