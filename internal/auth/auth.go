@@ -89,6 +89,18 @@ func LoadCredentials() (credentials, error) {
 	return creds, nil
 }
 
+// LoadHubURL reads the hub URL from saved credentials.
+func LoadHubURL() (string, error) {
+	creds, err := LoadCredentials()
+	if err != nil {
+		return "", err
+	}
+	if creds.HubURL == "" {
+		return "", fmt.Errorf("credentials file contains no hub URL")
+	}
+	return creds.HubURL, nil
+}
+
 // LoadToken reads the access token from ~/.cllmhub/credentials.
 func LoadToken() (string, error) {
 	creds, err := LoadCredentials()

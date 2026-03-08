@@ -20,11 +20,16 @@ the local credentials file at ~/.cllmhub/credentials.`,
 func runLogout(cmd *cobra.Command, args []string) error {
 	// Attempt server-side revocation if we have a refresh token
 	if refreshToken, err := auth.LoadRefreshToken(); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		hubURL, hubErr := auth.LoadHubURL()
+		if hubErr != nil {
+			fmt.Println("Warning: no hub URL in credentials, skipping server-side revocation")
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		if err := auth.RevokeToken(ctx, hubURL, refreshToken); err != nil {
-			fmt.Printf("Warning: failed to revoke token server-side: %v\n", err)
+			if err := auth.RevokeToken(ctx, hubURL, refreshToken); err != nil {
+				fmt.Printf("Warning: failed to revoke token server-side: %v\n", err)
+			}
 		}
 	}
 

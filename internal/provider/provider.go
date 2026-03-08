@@ -126,7 +126,7 @@ func (p *Provider) Start(ctx context.Context) error {
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
 	fmt.Printf("✓ Connected to LLMHub network\n")
-	fmt.Printf("✓ Model %q published as %s\n", p.model, p.id)
+	fmt.Printf("✓ Model %q published as %s (max concurrent: %d)\n", p.model, p.id, p.hubCfg.MaxConcurrent)
 	fmt.Printf("✓ Listening for requests via WebSocket\n")
 
 	// Watch for token manager death and shut down the provider.

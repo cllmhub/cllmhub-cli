@@ -17,6 +17,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	loginHubURL       string
+	loginUseLocalhost bool
+)
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with cLLMHub",
@@ -28,7 +33,19 @@ The CLI will automatically detect the authorization and save your credentials.`,
 	RunE: runLogin,
 }
 
+func init() {
+	loginCmd.Flags().StringVar(&loginHubURL, "hub-url", "https://cllmhub.com", "LLMHub gateway URL")
+	loginCmd.Flags().MarkHidden("hub-url")
+	loginCmd.Flags().BoolVarP(&loginUseLocalhost, "local", "l", false, "Use localhost hub (http://localhost:8080)")
+	loginCmd.Flags().MarkHidden("local")
+}
+
 func runLogin(cmd *cobra.Command, args []string) error {
+	hubURL := loginHubURL
+	if loginUseLocalhost {
+		hubURL = "http://localhost:8080"
+	}
+
 	// Capture existing credentials so we can revoke them after a successful login.
 	oldCreds, oldCredsErr := auth.LoadCredentials()
 
@@ -110,11 +127,22 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			labels[i] = fmt.Sprintf("%s (%s)", e.name, e.backend)
 		}
 		fmt.Println()
-		idx := tui.Select("Select a model to publish (or Esc to skip):", labels)
-		if idx >= 0 {
+	selectModel:
+		for {
+			idx := tui.Select("Select a model to publish (or Esc to skip):", labels)
+			if idx < 0 {
+				break
+			}
 			selected := entries[idx]
+			maxConc := tui.InputInt(fmt.Sprintf("Max concurrent requests for %s:", selected.name), 1)
+			if maxConc < 0 {
+				continue selectModel
+			}
+			if maxConc < 1 {
+				maxConc = 1
+			}
 			fmt.Printf("Publishing %s...\n\n", selected.name)
-			execCmd := exec.Command(os.Args[0], "publish", "-m", selected.name, "-b", selected.backend)
+			execCmd := exec.Command(os.Args[0], "publish", "-m", selected.name, "-b", selected.backend, "-c", fmt.Sprintf("%d", maxConc))
 			execCmd.Stdin = os.Stdin
 			execCmd.Stdout = os.Stdout
 			execCmd.Stderr = os.Stderr
@@ -164,10 +192,10 @@ func listLocalModels() []modelEntry {
 
 // fetchCurrentUsername tries to get the username from the hub. Returns empty string on any failure.
 func fetchCurrentUsername(savedHubURL, accessToken string) string {
-	url := savedHubURL
-	if url == "" {
-		url = hubURL
+	if savedHubURL == "" {
+		return ""
 	}
+	url := savedHubURL
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

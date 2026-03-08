@@ -9,10 +9,8 @@ import (
 )
 
 var (
-	hubURL       string
-	useLocalhost bool
-	Version      = "dev"
-	verChecker   *versioncheck.Checker
+	Version    = "dev"
+	verChecker *versioncheck.Checker
 )
 
 var rootCmd = &cobra.Command{
@@ -22,9 +20,6 @@ var rootCmd = &cobra.Command{
 Publish models, create tokens, and share access with anyone.`,
 	Version: Version,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		if useLocalhost {
-			hubURL = "http://localhost:8080"
-		}
 		if cmd.Name() != "update" {
 			verChecker = versioncheck.New(Version)
 		}
@@ -41,11 +36,6 @@ Publish models, create tokens, and share access with anyone.`,
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&hubURL, "hub-url", "https://cllmhub.com", "LLMHub gateway URL")
-	rootCmd.PersistentFlags().MarkHidden("hub-url")
-	rootCmd.PersistentFlags().BoolVarP(&useLocalhost, "local", "l", false, "Use localhost hub (http://localhost:8080)")
-	rootCmd.PersistentFlags().MarkHidden("local")
-
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	rootCmd.AddCommand(publishCmd)

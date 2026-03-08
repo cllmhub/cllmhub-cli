@@ -28,6 +28,11 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in: run 'cllmhub login' first")
 	}
 
+	hubURL, err := auth.LoadHubURL()
+	if err != nil {
+		return fmt.Errorf("not logged in: run 'cllmhub login' first")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

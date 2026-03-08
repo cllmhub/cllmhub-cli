@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"golang.org/x/term"
 )
@@ -84,4 +85,62 @@ func clearList(lines int) {
 		}
 	}
 	fmt.Print("\r")
+}
+
+// InputInt prompts the user to type a number. Shows a default value that is
+// accepted on bare Enter. Returns the default if the user presses Enter without
+// typing, or -1 on cancel (Ctrl+C / Esc).
+func InputInt(prompt string, defaultVal int) int {
+	fd := int(os.Stdin.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return defaultVal
+	}
+	defer term.Restore(fd, oldState)
+
+	input := ""
+	renderInput(prompt, input, defaultVal)
+
+	buf := make([]byte, 3)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
+			return -1
+		}
+
+		if n == 1 {
+			switch {
+			case buf[0] == 3 || buf[0] == 27: // Ctrl+C, Esc
+				fmt.Print("\r\033[2K")
+				return -1
+			case buf[0] == '\r' || buf[0] == '\n': // Enter
+				fmt.Print("\r\033[2K")
+				if input == "" {
+					return defaultVal
+				}
+				v, err := strconv.Atoi(input)
+				if err != nil || v < 1 {
+					return defaultVal
+				}
+				return v
+			case buf[0] == 127 || buf[0] == 8: // Backspace
+				if len(input) > 0 {
+					input = input[:len(input)-1]
+				}
+			case buf[0] >= '0' && buf[0] <= '9':
+				input += string(buf[0])
+			}
+		}
+
+		fmt.Print("\r\033[2K")
+		renderInput(prompt, input, defaultVal)
+	}
+}
+
+func renderInput(prompt, input string, defaultVal int) {
+	if input == "" {
+		fmt.Printf("%s \033[2m(%d)\033[0m ", prompt, defaultVal)
+	} else {
+		fmt.Printf("%s %s", prompt, input)
+	}
 }

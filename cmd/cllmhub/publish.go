@@ -63,16 +63,33 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		for i, e := range entries {
 			labels[i] = fmt.Sprintf("%s (%s)", e.name, e.backend)
 		}
-		idx := tui.Select("Select a model to publish:", labels)
-		if idx < 0 {
-			return fmt.Errorf("no model selected")
-		}
-		selected := entries[idx]
-		publishModel = selected.name
-		if !cmd.Flags().Changed("backend") {
-			publishBackend = selected.backend
+		for {
+			idx := tui.Select("Select a model to publish:", labels)
+			if idx < 0 {
+				return fmt.Errorf("no model selected")
+			}
+			selected := entries[idx]
+			publishModel = selected.name
+			if !cmd.Flags().Changed("backend") {
+				publishBackend = selected.backend
+			}
+			if !cmd.Flags().Changed("max-concurrent") {
+				v := tui.InputInt(fmt.Sprintf("Max concurrent requests for %s:", publishModel), publishMaxConcurrent)
+				if v < 0 {
+					continue
+				}
+				if v > 0 {
+					publishMaxConcurrent = v
+				}
+			}
+			break
 		}
 		fmt.Println()
+	}
+
+	hubURL, err := auth.LoadHubURL()
+	if err != nil {
+		return fmt.Errorf("not authenticated: run 'cllmhub login' first")
 	}
 
 	token, tokenMgr, err := auth.ResolveTokenManager(hubURL)
