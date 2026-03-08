@@ -24,11 +24,12 @@ type Provider struct {
 	hub         *hub.HubClient
 	hubCfg      hub.ConnectConfig
 
-	mu            sync.Mutex
-	requestCount  int64
-	queueDepth    int
-	startTime     time.Time
-	modelServerUp bool
+	mu             sync.Mutex
+	requestCount   int64
+	queueDepth     int
+	startTime      time.Time
+	modelServerUp  bool
+	heartbeatReset chan struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -96,9 +97,10 @@ func New(cfg Config) (*Provider, error) {
 		backend:       b,
 		hub:           hubClient,
 		hubCfg:        hubCfg,
-		startTime:     time.Now(),
-		modelServerUp: true,
-		tokenMgr:      cfg.TokenManager,
+		startTime:      time.Now(),
+		modelServerUp:  true,
+		heartbeatReset: make(chan struct{}, 1),
+		tokenMgr:       cfg.TokenManager,
 	}
 
 	// Set up audit logger
@@ -453,10 +455,16 @@ func (p *Provider) recordRequest(tokens int) {
 	defer p.mu.Unlock()
 
 	p.requestCount++
+
+	// Signal the heartbeat loop to reset its timer — a request acts as a heartbeat.
+	select {
+	case p.heartbeatReset <- struct{}{}:
+	default:
+	}
 }
 
 func (p *Provider) heartbeatLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
 	// Send initial heartbeat
@@ -466,6 +474,10 @@ func (p *Provider) heartbeatLoop(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			p.sendHeartbeat()
+		case <-p.heartbeatReset:
+			// A request was served — reset the timer so the next heartbeat
+			// fires 1 minute after the last activity instead of piling up.
+			ticker.Reset(60 * time.Second)
 		case <-ctx.Done():
 			return
 		}
