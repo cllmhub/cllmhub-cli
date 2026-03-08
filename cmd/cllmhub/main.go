@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cllmhub/cllmhub-cli/internal/auth"
+	"github.com/cllmhub/cllmhub-cli/internal/versioncheck"
 	"github.com/spf13/cobra"
 )
 
@@ -12,6 +12,7 @@ var (
 	hubURL       string
 	useLocalhost bool
 	Version      = "dev"
+	verChecker   *versioncheck.Checker
 )
 
 var rootCmd = &cobra.Command{
@@ -24,15 +25,23 @@ Publish models, create tokens, and share access with anyone.`,
 		if useLocalhost {
 			hubURL = "http://localhost:8080"
 		}
+		if cmd.Name() != "update" {
+			verChecker = versioncheck.New(Version)
+		}
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if verChecker == nil {
+			return
+		}
+		if r := verChecker.Result(); r != nil && r.Available {
+			fmt.Printf("\nA new version of cllmhub is available: %s (current: %s)\n", r.LatestVersion, r.CurrentVersion)
+			fmt.Println("Run \"cllmhub update\" to upgrade.")
+		}
 	},
 }
 
 func init() {
-	defaultHubURL := "https://cllmhub.com"
-	if saved := auth.LoadHubURL(); saved != "" {
-		defaultHubURL = saved
-	}
-	rootCmd.PersistentFlags().StringVar(&hubURL, "hub-url", defaultHubURL, "LLMHub gateway URL")
+	rootCmd.PersistentFlags().StringVar(&hubURL, "hub-url", "https://cllmhub.com", "LLMHub gateway URL")
 	rootCmd.PersistentFlags().MarkHidden("hub-url")
 	rootCmd.PersistentFlags().BoolVarP(&useLocalhost, "local", "l", false, "Use localhost hub (http://localhost:8080)")
 	rootCmd.PersistentFlags().MarkHidden("local")

@@ -56,15 +56,6 @@ func SaveOAuthCredentials(hubURL, accessToken, refreshToken, tokenType string, e
 	})
 }
 
-// LoadHubURL returns the hub URL stored in credentials, or empty string if not set.
-func LoadHubURL() string {
-	creds, err := LoadCredentials()
-	if err != nil {
-		return ""
-	}
-	return creds.HubURL
-}
-
 // SaveCredentials writes the credentials struct to disk.
 func SaveCredentials(creds credentials) error {
 	path, err := ensureCredentialsDir()
