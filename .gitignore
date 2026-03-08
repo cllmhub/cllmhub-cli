@@ -3,4 +3,5 @@ bin/
 *.exe
 .DS_Store
 .claude/
+CLAUDE.md
 docs/

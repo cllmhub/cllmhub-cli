@@ -1,8 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/cllmhub/cllmhub-cli/internal/auth"
@@ -23,6 +28,24 @@ The CLI will automatically detect the authorization and save your credentials.`,
 func runLogin(cmd *cobra.Command, args []string) error {
 	// Capture existing credentials so we can revoke them after a successful login.
 	oldCreds, oldCredsErr := auth.LoadCredentials()
+
+	// If the user is already logged in, show who they are and ask for confirmation.
+	if oldCredsErr == nil {
+		if username := fetchCurrentUsername(oldCreds.HubURL, oldCreds.AccessToken); username != "" {
+			fmt.Printf("You are already logged in as %s.\n", username)
+			fmt.Println("Logging in again will invalidate your current session across all terminals.")
+			fmt.Print("\nDo you want to continue? [y/N] ")
+
+			reader := bufio.NewReader(os.Stdin)
+			answer, _ := reader.ReadString('\n')
+			answer = strings.TrimSpace(strings.ToLower(answer))
+			if answer != "y" && answer != "yes" {
+				fmt.Println("Login cancelled.")
+				return nil
+			}
+			fmt.Println()
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -87,4 +110,39 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	fmt.Println("     This keeps a long-running process that bridges requests from the")
 	fmt.Println("     network to your local backend. Press Ctrl+C to stop publishing.")
 	return nil
+}
+
+// fetchCurrentUsername tries to get the username from the hub. Returns empty string on any failure.
+func fetchCurrentUsername(savedHubURL, accessToken string) string {
+	url := savedHubURL
+	if url == "" {
+		url = hubURL
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/api/me", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var info struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return ""
+	}
+	return info.Username
 }
