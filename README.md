@@ -61,12 +61,7 @@ make build-all
 
 Authenticate with cLLMHub using OAuth 2.0 device flow. Opens a browser to complete authorization.
 
-```
-Flags:
-  --hub-url   Hub gateway URL (default: https://cllmhub.com)
-```
-
-The hub URL is saved after login so all subsequent commands use it automatically.
+After login, you can immediately select a local model to publish.
 
 ### `cllmhub whoami`
 
@@ -80,10 +75,13 @@ When run without `-m`, it discovers models from local backends and lets you pick
 
 ```
 Flags:
-  --model,   -m   Model name to publish (omit for interactive selection)
-  --backend, -b   Backend type: ollama | vllm | llamacpp | custom (default: ollama)
-  --backend-url   Backend endpoint URL (overrides default for the backend type)
-  --hub-url       Hub gateway URL (default: saved from login, or https://cllmhub.com)
+  --model,          -m   Model name to publish (omit for interactive selection)
+  --backend,        -b   Backend type: ollama | vllm | llamacpp | custom (default: ollama)
+  --backend-url          Backend endpoint URL (overrides default for the backend type)
+  --description,    -d   Model description (max 500 chars)
+  --max-concurrent, -c   Maximum concurrent requests (default: 1)
+  --log-file             Path to audit log file (JSON lines)
+  --rate-limit           Max requests per minute (0 = unlimited)
 ```
 
 ### `cllmhub logout`
