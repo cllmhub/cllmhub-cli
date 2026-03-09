@@ -27,16 +27,20 @@ jobs:
           echo "Version: $VERSION"
 
       - name: Create tag
+        id: create-tag
         run: |
           TAG=${{ steps.version.outputs.tag }}
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists, skipping"
+          if git ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG already exists on remote, skipping release"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             git tag "$TAG"
             git push origin "$TAG"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build binaries
+        if: steps.create-tag.outputs.exists != 'true'
         run: |
           VERSION=${{ steps.version.outputs.tag }}
           LDFLAGS="-X main.Version=${VERSION}"
@@ -48,11 +52,13 @@ jobs:
           GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o bin/cllmhub-windows-amd64.exe ./cmd/cllmhub
 
       - name: Generate checksums
+        if: steps.create-tag.outputs.exists != 'true'
         run: |
           cd bin
           sha256sum * > checksums.txt
 
       - name: Create release
+        if: steps.create-tag.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
@@ -60,17 +66,20 @@ jobs:
           files: bin/*
 
       # --- npm publish ---
-      - uses: actions/setup-node@v4
+      - if: steps.create-tag.outputs.exists != 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
       - name: Update npm package version
+        if: steps.create-tag.outputs.exists != 'true'
         run: |
           cd npm
           npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version
 
       - name: Publish to npm
+        if: steps.create-tag.outputs.exists != 'true'
         run: |
           cd npm
           npm publish --access public
@@ -79,6 +88,7 @@ jobs:
 
       # --- Update Homebrew formula ---
       - name: Update Homebrew formula
+        if: steps.create-tag.outputs.exists != 'true'
         run: |
           VERSION=${{ steps.version.outputs.version }}
           SHA_DARWIN_AMD64=$(sha256sum bin/cllmhub-darwin-amd64 | awk '{print $1}')
@@ -93,6 +103,7 @@ jobs:
           sed -i "s/PLACEHOLDER_LINUX_ARM64\|[a-f0-9]\{64\}/$SHA_LINUX_ARM64/" Formula/cllmhub.rb
 
       - name: Commit updated Homebrew formula
+        if: steps.create-tag.outputs.exists != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

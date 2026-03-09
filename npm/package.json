@@ -1,6 +1,6 @@
 {
   "name": "cllmhub",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "description": "cLLMHub CLI - Turn your local LLM into a production API",
   "bin": {
     "cllmhub": "run.js"

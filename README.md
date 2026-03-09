@@ -13,8 +13,10 @@ The command-line interface for [cLLMHub](https://github.com/cllmhub/cllmhub) —
 ## Quick start
 
 ```bash
-# Install
-curl -fsSL https://raw.githubusercontent.com/cllmhub/cllmhub-cli/main/install.sh | sh
+# Install (pick one)
+npm install -g cllmhub          # npm
+brew install cllmhub/tap/cllmhub # Homebrew
+curl -fsSL https://raw.githubusercontent.com/cllmhub/cllmhub-cli/main/install.sh | sh  # shell script
 
 # Authenticate
 cllmhub login
@@ -28,15 +30,40 @@ cllmhub publish -m llama3 -b ollama
 
 ## Installation
 
+### npm / npx
+
+```bash
+# Install globally
+npm install -g cllmhub
+
+# Or run without installing
+npx cllmhub --help
+```
+
+The npm package automatically downloads the correct pre-built binary for your platform on install.
+
+### Homebrew
+
+```bash
+brew tap cllmhub/tap
+brew install cllmhub
+```
+
 ### Pre-built binaries
 
-Download from your hub's Settings > Downloads page. Available for:
+Download from your hub's Settings > Downloads page, or grab from [GitHub Releases](https://github.com/cllmhub/cllmhub-cli/releases). Available for:
 
 | Platform | Architecture |
 |----------|-------------|
 | macOS    | Apple Silicon (arm64), Intel (amd64) |
 | Linux    | x86_64 (amd64), ARM64 |
 | Windows  | x86_64 (amd64) |
+
+### Install script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cllmhub/cllmhub-cli/main/install.sh | sh
+```
 
 ### Build from source
 
@@ -61,7 +88,7 @@ make build-all
 
 Authenticate with cLLMHub using OAuth 2.0 device flow. Opens a browser to complete authorization.
 
-After login, you can immediately select a local model to publish.
+After login, the CLI discovers models from local backends and lets you select one to publish immediately.
 
 ### `cllmhub whoami`
 
@@ -69,9 +96,16 @@ Show the currently logged-in user.
 
 ### `cllmhub publish`
 
-Publish a local model to the hub. Keeps a persistent connection — your model is online as long as the CLI is running.
+Publish a local model to the hub. Keeps a persistent WebSocket connection — your model is online as long as the CLI is running.
 
-When run without `-m`, it discovers models from local backends and lets you pick one interactively.
+When run without `-m`, it discovers models from local backends (Ollama, vLLM) and lets you pick one interactively using arrow keys.
+
+**Features:**
+- Auto-reconnect on WebSocket disconnect (up to 5 retries)
+- Model server health monitoring
+- Heartbeat to keep your provider registered on the hub
+- Rate limiting and concurrency control
+- Request audit logging
 
 ```
 Flags:
@@ -90,7 +124,7 @@ Revoke credentials on the server and remove the local credentials file.
 
 ### `cllmhub update`
 
-Update the CLI to the latest version.
+Update the CLI to the latest version. The CLI also checks for updates automatically after each command.
 
 ## Supported backends
 
