@@ -27,7 +27,7 @@ var (
 
 var publishCmd = &cobra.Command{
 	Use:   "publish",
-	Short: "Publish a local LLM to the LLMHub network",
+	Short: "Publish a local LLM to the cLLMHub network",
 	Long: `Start a long-running process that connects to the cLLMHub gateway via WebSocket,
 advertises the model in the registry, and bridges incoming requests
 to the local inference backend.

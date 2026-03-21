@@ -34,7 +34,7 @@ The CLI will automatically detect the authorization and save your credentials.`,
 }
 
 func init() {
-	loginCmd.Flags().StringVar(&loginHubURL, "hub-url", "https://cllmhub.com", "LLMHub gateway URL")
+	loginCmd.Flags().StringVar(&loginHubURL, "hub-url", "https://cllmhub.com", "cLLMHub gateway URL")
 	loginCmd.Flags().MarkHidden("hub-url")
 	loginCmd.Flags().BoolVarP(&loginUseLocalhost, "local", "l", false, "Use localhost hub (http://localhost:8080)")
 	loginCmd.Flags().MarkHidden("local")
@@ -66,6 +66,19 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 		}
 	}
+
+	// Clean up previous user information before starting the new OAuth flow
+	// so stale credentials never interfere with the login process.
+	if oldCredsErr == nil && oldCreds.RefreshToken != "" {
+		oldHubURL := oldCreds.HubURL
+		if oldHubURL == "" {
+			oldHubURL = hubURL
+		}
+		revokeCtx, revokeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = auth.RevokeToken(revokeCtx, oldHubURL, oldCreds.RefreshToken)
+		revokeCancel()
+	}
+	_ = auth.RemoveCredentials()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -100,18 +113,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	// New login succeeded — clean up old credentials.
-	if oldCredsErr == nil && oldCreds.RefreshToken != "" {
-		oldHubURL := oldCreds.HubURL
-		if oldHubURL == "" {
-			oldHubURL = hubURL
-		}
-		revokeCtx, revokeCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer revokeCancel()
-		_ = auth.RevokeToken(revokeCtx, oldHubURL, oldCreds.RefreshToken)
-	}
-	_ = auth.RemoveCredentials()
 
 	expiresAt := time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second)
 	if err := auth.SaveOAuthCredentials(hubURL, tr.AccessToken, tr.RefreshToken, tr.TokenType, expiresAt); err != nil {

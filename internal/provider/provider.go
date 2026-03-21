@@ -125,7 +125,7 @@ func New(cfg Config) (*Provider, error) {
 func (p *Provider) Start(ctx context.Context) error {
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
-	fmt.Printf("✓ Connected to LLMHub network\n")
+	fmt.Printf("✓ Connected to cLLMHub network\n")
 	fmt.Printf("✓ Model %q published as %s (max concurrent: %d)\n", p.model, p.id, p.hubCfg.MaxConcurrent)
 	fmt.Printf("✓ Listening for requests via WebSocket\n")
 
@@ -201,7 +201,7 @@ func (p *Provider) reconnectLoop() bool {
 			}
 
 			p.hub = newClient
-			fmt.Printf("✓ Reconnected to LLMHub network\n")
+			fmt.Printf("✓ Reconnected to cLLMHub network\n")
 			return true
 		}
 	}
