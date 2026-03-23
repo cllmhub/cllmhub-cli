@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/cllmhub/cllmhub-cli/internal/daemon"
@@ -103,9 +102,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	daemonProcess := exec.Command(executable, daemonArgs...)
 	daemonProcess.Stdout = logFile
 	daemonProcess.Stderr = logFile
-	daemonProcess.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
-	}
+	setDetachedProcess(daemonProcess)
 
 	if err := daemonProcess.Start(); err != nil {
 		return fmt.Errorf("failed to start daemon: %w", err)
