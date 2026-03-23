@@ -10,6 +10,8 @@ import (
 
 	"github.com/cllmhub/cllmhub-cli/internal/auth"
 	"github.com/cllmhub/cllmhub-cli/internal/backend"
+	"github.com/cllmhub/cllmhub-cli/internal/daemon"
+	"github.com/cllmhub/cllmhub-cli/internal/models"
 	"github.com/cllmhub/cllmhub-cli/internal/provider"
 	"github.com/cllmhub/cllmhub-cli/internal/tui"
 	"github.com/spf13/cobra"
@@ -28,13 +30,18 @@ var (
 var publishCmd = &cobra.Command{
 	Use:   "publish",
 	Short: "Publish a local LLM to the cLLMHub network",
-	Long: `Start a long-running process that connects to the cLLMHub gateway via WebSocket,
-advertises the model in the registry, and bridges incoming requests
-to the local inference backend.
+	Long: `Publish models to the cLLMHub network.
 
-Supported backends: ollama, llama.cpp, vllm, lmstudio, custom`,
-	Example: `  # Publish a model using the default backend (ollama)
-  cllmhub publish -m "llama3-70b"
+When given model names as positional arguments, publishes downloaded GGUF models
+via the daemon (engine + bridge). When using -m/-b flags, runs in foreground
+mode connecting to an external inference backend.
+
+Supported backends (foreground mode): ollama, llama.cpp, vllm, lmstudio, custom`,
+	Example: `  # Publish downloaded models via daemon
+  cllmhub publish llama3-8b mistral-7b
+
+  # Publish a model using an external backend (foreground mode)
+  cllmhub publish -m "llama3-70b" -b ollama
 
   # Publish a model using a different backend
   cllmhub publish -m "mixtral-8x7b" -b vllm`,
@@ -52,26 +59,46 @@ func init() {
 
 }
 
+// publishableModel represents a model that can be published, from any source.
+type publishableModel struct {
+	name     string
+	source   string // "gguf", "ollama", "vllm", "lmstudio"
+	label    string // display label
+}
+
 func runPublish(cmd *cobra.Command, args []string) error {
+	// If positional args are provided and match downloaded models, route through daemon
+	if len(args) > 0 && !cmd.Flags().Changed("model") && !cmd.Flags().Changed("backend") {
+		return publishViaDaemon(args)
+	}
+
 	if publishModel == "" {
-		entries := listLocalModels()
-		if len(entries) == 0 {
-			return fmt.Errorf("no local models found; make sure Ollama, vLLM, or LM Studio is running")
+		available := listAllPublishable()
+		if len(available) == 0 {
+			return fmt.Errorf("no models found\n  Download GGUF models: cllmhub download <repo>\n  Or start Ollama/vLLM/LM Studio")
 		}
 
-		labels := make([]string, len(entries))
-		for i, e := range entries {
-			labels[i] = fmt.Sprintf("%s (%s)", e.name, e.backend)
+		labels := make([]string, len(available))
+		for i, m := range available {
+			labels[i] = m.label
 		}
+
 		for {
 			idx := tui.Select("Select a model to publish:", labels)
 			if idx < 0 {
 				return fmt.Errorf("no model selected")
 			}
-			selected := entries[idx]
+			selected := available[idx]
+
+			// Route GGUF models through daemon
+			if selected.source == "gguf" {
+				return publishViaDaemon([]string{selected.name})
+			}
+
+			// External backend model
 			publishModel = selected.name
 			if !cmd.Flags().Changed("backend") {
-				publishBackend = selected.backend
+				publishBackend = selected.source
 			}
 			if !cmd.Flags().Changed("max-concurrent") {
 				v := tui.InputInt(fmt.Sprintf("Max concurrent requests for %s:", publishModel), publishMaxConcurrent)
@@ -158,4 +185,97 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		return nil // clean shutdown via signal
 	}
 	return err
+}
+
+// listAllPublishable returns all models that can be published:
+// downloaded GGUF models + models from external backends (Ollama, vLLM, LM Studio).
+func listAllPublishable() []publishableModel {
+	var all []publishableModel
+
+	// Downloaded GGUF models
+	if registry, err := models.LoadRegistry(); err == nil {
+		for _, entry := range registry.List() {
+			if entry.State == "ready" {
+				all = append(all, publishableModel{
+					name:   entry.Name,
+					source: "gguf",
+					label:  fmt.Sprintf("%s (downloaded, %.1f GB)", entry.Name, float64(entry.SizeBytes)/(1024*1024*1024)),
+				})
+			}
+		}
+	}
+
+	// External backend models
+	for _, e := range listLocalModels() {
+		all = append(all, publishableModel{
+			name:   e.name,
+			source: e.backend,
+			label:  fmt.Sprintf("%s (%s)", e.name, e.backend),
+		})
+	}
+
+	return all
+}
+
+// publishViaDaemon publishes models through the daemon (for downloaded GGUF models).
+func publishViaDaemon(modelNames []string) error {
+	// Verify models exist in registry
+	registry, err := models.LoadRegistry()
+	if err != nil {
+		return fmt.Errorf("failed to load model registry: %w", err)
+	}
+
+	for i, name := range modelNames {
+		resolved, ok := registry.ResolveAlias(name)
+		if !ok {
+			return fmt.Errorf("model %q not found — run 'cllmhub models' to see available models", name)
+		}
+		modelNames[i] = resolved
+
+		entry, _ := registry.Get(resolved)
+		if entry.State != "ready" {
+			return fmt.Errorf("model %q is not ready (state: %s)", resolved, entry.State)
+		}
+	}
+
+	// Ensure daemon is running
+	running, _ := daemon.IsRunning()
+	if !running {
+		fmt.Println("Starting daemon...")
+		// Start daemon by running the start command logic
+		if err := runStart(nil, nil); err != nil {
+			return fmt.Errorf("failed to start daemon: %w", err)
+		}
+	}
+
+	client, err := daemon.NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+
+	for _, name := range modelNames {
+		fmt.Printf("Publishing %s...\n", name)
+	}
+
+	resp, err := client.Publish(modelNames)
+	if err != nil {
+		return err
+	}
+
+	var failures int
+	for _, r := range resp.Results {
+		if r.Already {
+			fmt.Printf("%-20s already published\n", r.Model)
+		} else if r.Success {
+			fmt.Printf("%-20s published\n", r.Model)
+		} else {
+			fmt.Printf("%-20s error: %s\n", r.Model, r.Error)
+			failures++
+		}
+	}
+
+	if failures > 0 {
+		return fmt.Errorf("%d of %d models failed to publish", failures, len(modelNames))
+	}
+	return nil
 }

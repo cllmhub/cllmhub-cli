@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -36,6 +37,7 @@ type Provider struct {
 	audit    *audit.Logger
 	limiter  *rate.Limiter
 	tokenMgr *auth.TokenManager
+	logger   *slog.Logger
 }
 
 // Config holds provider configuration
@@ -49,6 +51,7 @@ type Config struct {
 	LogFile       string
 	RateLimit     int // requests per minute, 0 = unlimited
 	TokenManager  *auth.TokenManager
+	Logger        *slog.Logger // optional; if nil, prints to stdout
 }
 
 // New creates a new provider instance
@@ -99,6 +102,7 @@ func New(cfg Config) (*Provider, error) {
 		startTime:      time.Now(),
 		modelServerUp:  true,
 		tokenMgr:       cfg.TokenManager,
+		logger:         cfg.Logger,
 	}
 
 	// Set up audit logger
@@ -125,16 +129,16 @@ func New(cfg Config) (*Provider, error) {
 func (p *Provider) Start(ctx context.Context) error {
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
-	fmt.Printf("✓ Connected to cLLMHub network\n")
-	fmt.Printf("✓ Model %q published as %s (max concurrent: %d)\n", p.model, p.id, p.hubCfg.MaxConcurrent)
-	fmt.Printf("✓ Listening for requests via WebSocket\n")
+	p.logf("✓ Connected to cLLMHub network\n")
+	p.logf("✓ Model %q published as %s (max concurrent: %d)\n", p.model, p.id, p.hubCfg.MaxConcurrent)
+	p.logf("✓ Listening for requests via WebSocket\n")
 
 	// Watch for token manager death and shut down the provider.
 	if p.tokenMgr != nil {
 		go func() {
 			select {
 			case <-p.tokenMgr.Dead:
-				fmt.Printf("\n✗ Authentication expired — run 'cllmhub login' and restart\n")
+				p.logf("\n✗ Authentication expired — run 'cllmhub login' and restart\n")
 				p.cancel()
 			case <-p.ctx.Done():
 			}
@@ -155,8 +159,8 @@ func (p *Provider) Start(ctx context.Context) error {
 		}
 
 		// Connection dropped unexpectedly — attempt to reconnect.
-		fmt.Printf("\n⚠ Connection lost: %v\n", err)
-		fmt.Printf("  Will attempt to reconnect every 60 seconds...\n")
+		p.logf("\n⚠ Connection lost: %v\n", err)
+		p.logf("  Will attempt to reconnect every 60 seconds...\n")
 
 		if !p.reconnectLoop() {
 			if p.ctx.Err() != nil {
@@ -184,7 +188,7 @@ func (p *Provider) reconnectLoop() bool {
 		case <-p.ctx.Done():
 			return false
 		case <-ticker.C:
-			fmt.Printf("⚠ Reconnect attempt %d/%d...\n", attempt, maxReconnectAttempts)
+			p.logf("⚠ Reconnect attempt %d/%d...\n", attempt, maxReconnectAttempts)
 
 			// Use a fresh token if available.
 			cfg := p.hubCfg
@@ -196,17 +200,17 @@ func (p *Provider) reconnectLoop() bool {
 
 			newClient, err := hub.Connect(cfg)
 			if err != nil {
-				fmt.Printf("⚠ Reconnect failed: %v\n", err)
+				p.logf("⚠ Reconnect failed: %v\n", err)
 				continue
 			}
 
 			p.hub = newClient
-			fmt.Printf("✓ Reconnected to cLLMHub network\n")
+			p.logf("✓ Reconnected to cLLMHub network\n")
 			return true
 		}
 	}
 
-	fmt.Printf("✗ Failed to reconnect after %d attempts, giving up\n", maxReconnectAttempts)
+	p.logf("✗ Failed to reconnect after %d attempts, giving up\n", maxReconnectAttempts)
 	return false
 }
 
@@ -221,8 +225,8 @@ func (p *Provider) onModelServerDown() {
 	p.modelServerUp = false
 	p.mu.Unlock()
 
-	fmt.Printf("\n⚠ Model server unreachable: %s\n", p.backend.URL())
-	fmt.Printf("  Attempting recovery — %d checks, 60 seconds apart...\n", maxHealthCheckAttempts)
+	p.logf("\n⚠ Model server unreachable: %s\n", p.backend.URL())
+	p.logf("  Attempting recovery — %d checks, 60 seconds apart...\n", maxHealthCheckAttempts)
 
 	// Alert 1: model_server_unreachable
 	p.hub.SendAlert(hub.Alert{
@@ -246,7 +250,7 @@ func (p *Provider) onModelServerDown() {
 			cancel()
 
 			if err != nil {
-				fmt.Printf("⚠ Health check %d/%d... failed\n", attempt, maxHealthCheckAttempts)
+				p.logf("⚠ Health check %d/%d... failed\n", attempt, maxHealthCheckAttempts)
 				continue
 			}
 
@@ -255,7 +259,7 @@ func (p *Provider) onModelServerDown() {
 			p.modelServerUp = true
 			p.mu.Unlock()
 
-			fmt.Printf("✓ Model server recovered\n")
+			p.logf("✓ Model server recovered\n")
 
 			// Alert 3: model_server_recovered
 			p.hub.SendAlert(hub.Alert{
@@ -270,7 +274,7 @@ func (p *Provider) onModelServerDown() {
 	}
 
 	// All attempts failed
-	fmt.Printf("✗ Model server down after %d attempts, shutting down\n", maxHealthCheckAttempts)
+	p.logf("✗ Model server down after %d attempts, shutting down\n", maxHealthCheckAttempts)
 
 	// Alert 2: model_server_down
 	p.hub.SendAlert(hub.Alert{
@@ -480,6 +484,15 @@ func (p *Provider) Status() ProviderStatus {
 		QueueDepth:   p.queueDepth,
 		GPUUtil:      0,
 		Timestamp:    time.Now(),
+	}
+}
+
+// logf prints to stdout or logs via slog if a logger is configured.
+func (p *Provider) logf(format string, args ...any) {
+	if p.logger != nil {
+		p.logger.Info(fmt.Sprintf(format, args...), "model", p.model, "provider_id", p.id)
+	} else {
+		fmt.Printf(format, args...)
 	}
 }
 

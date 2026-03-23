@@ -22,58 +22,158 @@ The npm package automatically downloads the correct pre-built binary for your pl
 # Authenticate
 cllmhub login
 
-# Publish a model (interactive — picks from local backends)
-cllmhub publish
+# Download and publish a Hugging Face model
+cllmhub hf-token set <your-hf-token>
+cllmhub models --search mistral
+cllmhub download TheBloke/Mistral-7B-v0.1-GGUF
+cllmhub publish Mistral-7B-v0.1
 
-# Or specify the model directly
+# Or publish from an external backend
 cllmhub publish -m llama3 -b ollama
 ```
 
 ## Commands
 
-### `cllmhub login`
+### Model management
 
-Authenticate with cLLMHub using OAuth 2.0 device flow. Opens a browser to complete authorization.
+#### `cllmhub models`
 
-After login, the CLI discovers models from local backends and lets you select one to publish immediately.
+List downloaded models, or search Hugging Face for GGUF models.
 
-### `cllmhub whoami`
-
-Show the currently logged-in user.
-
-### `cllmhub publish`
-
-Publish a local model to the hub. Keeps a persistent WebSocket connection — your model is online as long as the CLI is running.
-
-When run without `-m`, it discovers models from local backends (Ollama, vLLM, LM Studio) and lets you pick one interactively using arrow keys.
-
-**Features:**
-- Auto-reconnect on WebSocket disconnect (up to 5 retries)
-- Model server health monitoring
-- Heartbeat to keep your provider registered on the hub
-- Rate limiting and concurrency control
-- Request audit logging
+```bash
+cllmhub models                    # List downloaded models
+cllmhub models --search mistral   # Search Hugging Face
+```
 
 ```
 Flags:
-  --model,          -m   Model name to publish (omit for interactive selection)
+  --search, -s   Search Hugging Face for GGUF models
+```
+
+#### `cllmhub download <repo...>`
+
+Download GGUF model files from Hugging Face repositories. Lists available GGUF files and lets you pick which quantization to download. Requires a Hugging Face token.
+
+```bash
+cllmhub download TheBloke/Mistral-7B-v0.1-GGUF
+cllmhub download TheBloke/Mistral-7B-v0.1-GGUF TheBloke/Llama-2-7B-GGUF
+```
+
+#### `cllmhub delete <model...>`
+
+Delete one or more downloaded models. Prevents deletion of currently published models.
+
+```bash
+cllmhub delete mistral-7b
+cllmhub delete m1 m2   # Use aliases
+```
+
+### Hugging Face token
+
+#### `cllmhub hf-token set <token>`
+
+Save a Hugging Face API token.
+
+#### `cllmhub hf-token remove`
+
+Remove the stored Hugging Face token.
+
+#### `cllmhub hf-token status`
+
+Check if a Hugging Face token is configured.
+
+### Daemon
+
+#### `cllmhub start`
+
+Start the cLLMHub daemon with hardware auto-detection (Apple Silicon, NVIDIA GPU, CPU).
+
+```bash
+cllmhub start                                          # Auto-detect everything
+cllmhub start --ctx-size 8192 --flash-attn --slots 2   # Custom settings
+```
+
+```
+Flags:
+  --ctx-size       Context size for inference (0 = auto-detect)
+  --flash-attn     Enable flash attention (auto-enabled on Apple Silicon/NVIDIA)
+  --slots          Number of concurrent inference slots (0 = auto-detect)
+  --n-gpu-layers   Number of layers to offload to GPU (-1 = auto, 0 = CPU only)
+  --batch-size     Batch size for prompt processing (0 = auto-detect)
+```
+
+#### `cllmhub stop`
+
+Stop the running cLLMHub daemon.
+
+#### `cllmhub status`
+
+Show daemon status, including PID, uptime, and currently published models.
+
+#### `cllmhub logs`
+
+Show daemon logs.
+
+```
+Flags:
+  --follow, -f   Follow log output
+  --lines,  -n   Number of lines to show (default: 50)
+```
+
+### Publishing
+
+#### `cllmhub publish`
+
+Publish models to the cLLMHub network. Supports two modes:
+
+**Daemon mode** — publish downloaded GGUF models via the daemon:
+
+```bash
+cllmhub publish llama3-8b mistral-7b
+```
+
+**Foreground mode** — connect to an external inference backend:
+
+```bash
+cllmhub publish -m llama3-70b -b ollama
+cllmhub publish -m mixtral-8x7b -b vllm
+```
+
+```
+Flags (foreground mode):
+  --model,          -m   Model name to publish
   --backend,        -b   Backend type: ollama | vllm | lmstudio | llamacpp | custom (default: ollama)
   --backend-url          Backend endpoint URL (overrides default for the backend type)
-  --description,    -d   Model description (max 500 chars)
   --max-concurrent, -c   Maximum concurrent requests (default: 1)
   --log-file             Path to audit log file (JSON lines)
   --rate-limit           Max requests per minute (0 = unlimited)
 ```
 
-### `cllmhub logout`
+#### `cllmhub unpublish <model...>`
+
+Stop serving one or more published models. The models remain downloaded locally.
+
+### Account
+
+#### `cllmhub login`
+
+Authenticate with cLLMHub using OAuth 2.0 device flow.
+
+#### `cllmhub whoami`
+
+Show the currently logged-in user.
+
+#### `cllmhub logout`
 
 Revoke credentials on the server and remove the local credentials file.
 
-### `cllmhub update`
+#### `cllmhub update`
 
-Update the CLI to the latest version. The CLI also checks for updates automatically after each command.
+Update the CLI to the latest version.
 
 ## Supported backends
+
+For foreground-mode publishing (`cllmhub publish -m <model> -b <backend>`):
 
 | Backend    | Default endpoint       | Notes |
 |------------|------------------------|-------|

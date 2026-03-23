@@ -17,6 +17,7 @@ const defaultLlamaCppURL = "http://localhost:8080"
 // LlamaCpp implements the Backend interface for llama.cpp server
 type LlamaCpp struct {
 	url    string
+	model  string
 	client *http.Client
 }
 
@@ -28,7 +29,8 @@ func NewLlamaCpp(cfg Config) (*LlamaCpp, error) {
 	}
 
 	return &LlamaCpp{
-		url: url,
+		url:   url,
+		model: cfg.Model,
 		client: &http.Client{
 			Timeout: 5 * time.Minute,
 		},
@@ -47,6 +49,7 @@ func (l *LlamaCpp) URL() string {
 
 // llamaCppRequest is the llama.cpp server request format
 type llamaCppRequest struct {
+	Model       string  `json:"model,omitempty"`
 	Prompt      string  `json:"prompt"`
 	NPredict    int     `json:"n_predict,omitempty"`
 	Temperature float64 `json:"temperature,omitempty"`
@@ -65,6 +68,7 @@ type llamaCppResponse struct {
 // Complete sends a prompt and returns the full completion
 func (l *LlamaCpp) Complete(ctx context.Context, req *Request) (*Response, error) {
 	llamaReq := llamaCppRequest{
+		Model:       l.model,
 		Prompt:      req.Prompt,
 		NPredict:    req.MaxTokens,
 		Temperature: req.Temperature,
@@ -109,6 +113,7 @@ func (l *LlamaCpp) Complete(ctx context.Context, req *Request) (*Response, error
 // Stream sends a prompt and streams tokens via the callback
 func (l *LlamaCpp) Stream(ctx context.Context, req *Request, callback func(token string, done bool) error) (*Response, error) {
 	llamaReq := llamaCppRequest{
+		Model:       l.model,
 		Prompt:      req.Prompt,
 		NPredict:    req.MaxTokens,
 		Temperature: req.Temperature,

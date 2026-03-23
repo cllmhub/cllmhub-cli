@@ -1,8 +1,10 @@
 package hub
 
 import (
-	"context"
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,6 +15,36 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// pinnedCertFingerprints contains SHA-256 fingerprints of trusted hub TLS
+// certificates. If non-empty, connections are rejected unless the server
+// certificate matches one of these fingerprints.
+var pinnedCertFingerprints []string
+
+// SetPinnedCertFingerprints configures TLS certificate pinning for hub connections.
+// Each fingerprint should be a hex-encoded SHA-256 hash of the DER-encoded certificate.
+func SetPinnedCertFingerprints(fingerprints []string) {
+	pinnedCertFingerprints = fingerprints
+}
+
+func pinnedTLSConfig() *tls.Config {
+	if len(pinnedCertFingerprints) == 0 {
+		return nil
+	}
+	return &tls.Config{
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			for _, cert := range cs.PeerCertificates {
+				fingerprint := fmt.Sprintf("%x", sha256.Sum256(cert.Raw))
+				for _, pinned := range pinnedCertFingerprints {
+					if fingerprint == pinned {
+						return nil
+					}
+				}
+			}
+			return fmt.Errorf("TLS certificate does not match any pinned fingerprint")
+		},
+	}
+}
 
 // WebSocket message types (must match gateway/internal/provider/messages.go)
 const (
@@ -103,6 +135,7 @@ func Connect(cfg ConnectConfig) (*HubClient, error) {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 15 * time.Second,
 		Proxy:            http.ProxyFromEnvironment,
+		TLSClientConfig:  pinnedTLSConfig(),
 	}
 	ws, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
