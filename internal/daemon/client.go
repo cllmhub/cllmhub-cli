@@ -11,7 +11,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -63,10 +62,10 @@ func IsRunning() (bool, int) {
 
 	// Try to acquire a non-blocking exclusive lock.
 	// If we succeed, no daemon holds the lock — clean up the stale file.
-	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	err = lockFile(f)
 	if err == nil {
 		// Lock acquired — no daemon is running, stale PID file.
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		unlockFile(f)
 		os.Remove(pidPath)
 		return false, 0
 	}

@@ -367,7 +367,7 @@ func (d *Daemon) writePID() error {
 	}
 
 	// Acquire exclusive advisory lock — prevents two daemons from running simultaneously.
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockFile(f); err != nil {
 		f.Close()
 		return fmt.Errorf("another daemon is already running (cannot lock PID file)")
 	}
@@ -384,7 +384,7 @@ func (d *Daemon) writePID() error {
 
 func (d *Daemon) removePID() {
 	if d.pidFile != nil {
-		syscall.Flock(int(d.pidFile.Fd()), syscall.LOCK_UN)
+		unlockFile(d.pidFile)
 		d.pidFile.Close()
 	}
 	pidPath, err := PIDFile()
