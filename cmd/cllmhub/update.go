@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cllmhub/cllmhub-cli/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
@@ -88,12 +89,44 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
+	// Stop daemon if running — it holds the old binary in memory
+	daemonWasRunning := false
+	if running, _ := daemon.IsRunning(); running {
+		fmt.Println("Stopping daemon before update...")
+		if client, err := daemon.NewClient(); err == nil {
+			if err := client.Stop(); err != nil {
+				fmt.Printf("Warning: failed to stop daemon: %v\n", err)
+			} else {
+				daemonWasRunning = true
+				// Wait for daemon to fully exit
+				for i := 0; i < 30; i++ {
+					time.Sleep(200 * time.Millisecond)
+					if running, _ := daemon.IsRunning(); !running {
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// Replace the current binary
 	if err := os.Rename(tmpFile.Name(), currentBin); err != nil {
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 
 	fmt.Printf("Updated to %s successfully.\n", version)
+
+	// Restart daemon if it was running before the update
+	if daemonWasRunning {
+		fmt.Println("Restarting daemon with new version...")
+		if err := runStart(nil, nil); err != nil {
+			fmt.Printf("Warning: failed to restart daemon: %v\n", err)
+			fmt.Println("Run 'cllmhub start' manually to restart.")
+		} else {
+			fmt.Println("Daemon restarted.")
+		}
+	}
+
 	return nil
 }
 
