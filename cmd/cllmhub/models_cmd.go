@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/cllmhub/cllmhub-cli/internal/daemon"
 	"github.com/cllmhub/cllmhub-cli/internal/models"
 	"github.com/spf13/cobra"
 )
@@ -74,16 +75,52 @@ func showDownloadedModels() error {
 	}
 
 	entries := registry.List()
-	if len(entries) == 0 {
+
+	// Build a map of published models with their provider ID from the daemon.
+	type publishedInfo struct {
+		providerID string
+	}
+	published := make(map[string]publishedInfo) // model name -> info
+	running, _ := daemon.IsRunning()
+	if running {
+		if client, err := daemon.NewClient(); err == nil {
+			if status, err := client.Status(); err == nil {
+				for _, m := range status.Models {
+					published[m.Name] = publishedInfo{providerID: m.ProviderID}
+				}
+			}
+		}
+	}
+
+	// Collect published external models (not in local registry).
+	type externalModel struct {
+		name       string
+		providerID string
+	}
+	var externals []externalModel
+	for name, info := range published {
+		if _, ok := registry.Get(name); !ok {
+			externals = append(externals, externalModel{name, info.providerID})
+		}
+	}
+
+	if len(entries) == 0 && len(externals) == 0 {
 		fmt.Println("No downloaded models")
 		fmt.Println("Search for models: cllmhub models --search <query>")
 		return nil
 	}
 
-	fmt.Printf("%-6s %-25s %-10s %-10s %s\n", "ALIAS", "NAME", "SIZE", "STATUS", "REPO")
+	fmt.Printf("%-6s %-25s %-10s %-12s %-10s %s\n", "ALIAS", "NAME", "SIZE", "PROVIDER", "STATUS", "REPO")
 	for _, e := range entries {
 		sizeStr := formatSize(e.SizeBytes)
-		fmt.Printf("%-6s %-25s %-10s %-10s %s\n", e.Alias, e.Name, sizeStr, e.State, e.RepoID)
+		providerID := "-"
+		if info, ok := published[e.Name]; ok {
+			providerID = info.providerID
+		}
+		fmt.Printf("%-6s %-25s %-10s %-12s %-10s %s\n", e.Alias, e.Name, sizeStr, providerID, e.State, e.RepoID)
+	}
+	for _, ext := range externals {
+		fmt.Printf("%-6s %-25s %-10s %-12s %-10s %s\n", "-", ext.name, "-", ext.providerID, "published", "-")
 	}
 
 	return nil

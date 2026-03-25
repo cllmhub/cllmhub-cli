@@ -227,8 +227,9 @@ func (bm *BridgeManager) IsPublished(model string) bool {
 
 // BridgeInfo describes a published model and its backend.
 type BridgeInfo struct {
-	Name    string
-	Backend string // "engine", "ollama", "vllm", etc.
+	Name       string
+	Backend    string // "engine", "ollama", "vllm", etc.
+	ProviderID string // cLLMHub provider ID
 }
 
 // PublishedModels returns the list of currently published model names.
@@ -250,7 +251,11 @@ func (bm *BridgeManager) PublishedModelsWithBackend() []BridgeInfo {
 
 	infos := make([]BridgeInfo, 0, len(bm.bridges))
 	for _, b := range bm.bridges {
-		infos = append(infos, BridgeInfo{Name: b.model, Backend: b.backendType})
+		providerID := ""
+		if b.provider != nil {
+			providerID = b.provider.Status().ProviderID
+		}
+		infos = append(infos, BridgeInfo{Name: b.model, Backend: b.backendType, ProviderID: providerID})
 	}
 	return infos
 }

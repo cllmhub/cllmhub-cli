@@ -33,9 +33,10 @@ type StatusResponse struct {
 
 // ModelStatus represents the state of a single model.
 type ModelStatus struct {
-	Name    string `json:"name"`
-	State   string `json:"state"`   // "published", "downloaded", "error"
-	Backend string `json:"backend"` // "engine", "ollama", "vllm", "lmstudio", "custom"
+	Name       string `json:"name"`
+	State      string `json:"state"`       // "published", "downloaded", "error"
+	Backend    string `json:"backend"`     // "engine", "ollama", "vllm", "lmstudio", "custom"
+	ProviderID string `json:"provider_id"` // cLLMHub provider ID
 }
 
 // PublishRequest is the body for POST /api/publish.
@@ -211,9 +212,10 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Add published models with backend info
 	for _, info := range d.bridges.PublishedModelsWithBackend() {
 		resp.Models = append(resp.Models, ModelStatus{
-			Name:    info.Name,
-			State:   "published",
-			Backend: info.Backend,
+			Name:       info.Name,
+			State:      "published",
+			Backend:    info.Backend,
+			ProviderID: info.ProviderID,
 		})
 	}
 
