@@ -30,7 +30,7 @@ engine and bridge services. The terminal is never blocked.
 Positional arguments publish downloaded GGUF models via the local engine.
 Use -m/-b flags to publish models served by an external backend (Ollama, vLLM, etc.).
 
-Supported backends: ollama, llama.cpp, vllm, lmstudio, custom`,
+Supported backends: ollama, llama.cpp, vllm, lmstudio, mlx, custom`,
 	Example: `  # Publish downloaded models via engine
   cllmhub publish llama3-8b mistral-7b
 
@@ -44,7 +44,7 @@ Supported backends: ollama, llama.cpp, vllm, lmstudio, custom`,
 
 func init() {
 	publishCmd.Flags().StringVarP(&publishModel, "model", "m", "", "Model name to publish")
-	publishCmd.Flags().StringVarP(&publishBackend, "backend", "b", "ollama", "Backend type: ollama, llama.cpp, vllm, lmstudio, custom")
+	publishCmd.Flags().StringVarP(&publishBackend, "backend", "b", "ollama", "Backend type: ollama, llama.cpp, vllm, lmstudio, mlx, custom")
 	publishCmd.Flags().StringVar(&publishBackendURL, "backend-url", "", "Backend endpoint URL (overrides default for the backend type)")
 	publishCmd.Flags().StringVarP(&publishDescription, "description", "d", "", "Model description")
 	publishCmd.Flags().IntVarP(&publishMaxConcurrent, "max-concurrent", "c", 1, "Maximum concurrent requests")
@@ -53,7 +53,7 @@ func init() {
 // publishableModel represents a model that can be published, from any source.
 type publishableModel struct {
 	name   string
-	source string // "gguf", "ollama", "vllm", "lmstudio"
+	source string // "gguf", "ollama", "vllm", "lmstudio", "mlx"
 	label  string // display label
 }
 
@@ -74,7 +74,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	// Interactive TUI selection
 	available := listAllPublishable()
 	if len(available) == 0 {
-		return fmt.Errorf("no models found\n  Download GGUF models: cllmhub download <repo>\n  Or start Ollama/vLLM/LM Studio")
+		return fmt.Errorf("no models found\n  Download GGUF models: cllmhub download <repo>\n  Or start Ollama/vLLM/LM Studio/MLX")
 	}
 
 	labels := make([]string, len(available))

@@ -164,7 +164,7 @@ type modelEntry struct {
 	backend string
 }
 
-// listLocalModels queries Ollama, vLLM, and LM Studio for available models.
+// listLocalModels queries Ollama, vLLM, LM Studio, and MLX for available models.
 // Returns all models found across all backends.
 func listLocalModels() []modelEntry {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -192,6 +192,14 @@ func listLocalModels() []modelEntry {
 		if models, err := b.ListModels(ctx); err == nil {
 			for _, m := range models {
 				entries = append(entries, modelEntry{name: m, backend: "lmstudio"})
+			}
+		}
+	}
+
+	if b, err := backend.NewMLX(backend.Config{}); err == nil {
+		if models, err := b.ListModels(ctx); err == nil {
+			for _, m := range models {
+				entries = append(entries, modelEntry{name: m, backend: "mlx"})
 			}
 		}
 	}

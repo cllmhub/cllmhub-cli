@@ -2,7 +2,7 @@
 
 ## Overview
 
-cLLMHub CLI is a Go command-line tool that downloads, runs, and publishes local LLM models to the cLLMHub hub network. It supports both a persistent daemon mode (running its own llama-server) and a foreground mode (connecting to external backends like Ollama or vLLM). Built with Go 1.24 and the Cobra CLI framework.
+cLLMHub CLI is a Go command-line tool that downloads, runs, and publishes local LLM models to the cLLMHub hub network. It supports both a persistent daemon mode (running its own llama-server) and a foreground mode (connecting to external backends like Ollama, vLLM, or MLX). Built with Go 1.24 and the Cobra CLI framework.
 
 ## Project Structure
 
@@ -77,6 +77,7 @@ Supported backends:
 | vLLM       | `localhost:8000`         | OpenAI-compatible   |
 | LM Studio  | `localhost:1234`         | OpenAI-compatible   |
 | Llama.cpp  | `localhost:8080`         | Llama.cpp HTTP      |
+| MLX        | `localhost:8080`         | OpenAI-compatible   |
 | Custom     | User-specified           | Simple JSON         |
 
 A factory function `New()` instantiates the correct backend from a config type string.

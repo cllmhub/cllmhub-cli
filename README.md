@@ -8,7 +8,7 @@ The command-line interface for [cLLMHub](https://github.com/cllmhub/cllmhub) —
 - **Run** a local inference daemon with hardware auto-detection (Apple Silicon, NVIDIA, CPU)
 - **Publish** models to the hub so anyone with an API key can use them
 - **Manage** downloaded models — list, search, and delete
-- **Connect** external backends (Ollama, vLLM, LM Studio, llama.cpp) to the hub
+- **Connect** external backends (Ollama, vLLM, LM Studio, llama.cpp, MLX) to the hub
 - **Authenticate** via OAuth device flow, manage credentials
 
 ## Quick start
@@ -201,7 +201,7 @@ cllmhub publish -m mixtral-8x7b -b vllm
 ```
 Flags (foreground mode):
   --model,          -m   Model name to publish
-  --backend,        -b   Backend type: ollama | vllm | lmstudio | llamacpp | custom (default: ollama)
+  --backend,        -b   Backend type: ollama | vllm | lmstudio | llamacpp | mlx | custom (default: ollama)
   --backend-url          Backend endpoint URL (overrides default for the backend type)
   --max-concurrent, -c   Maximum concurrent requests (default: 1)
   --log-file             Path to audit log file (JSON lines)
@@ -245,6 +245,7 @@ For foreground-mode publishing (`cllmhub publish -m <model> -b <backend>`):
 | `vllm`     | http://localhost:8000  | High throughput, GPU optimized |
 | `lmstudio` | http://localhost:1234  | Desktop app for running local LLMs |
 | `llamacpp` | http://localhost:8080  | CPU-friendly, quantized models |
+| `mlx`      | http://localhost:8080  | Apple Silicon optimized via mlx-lm |
 | `custom`   | (user-specified)       | Any OpenAI-compatible HTTP server |
 
 ## License

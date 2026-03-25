@@ -92,6 +92,7 @@ func TestNew_ValidTypes(t *testing.T) {
 		{"llama.cpp", "llama.cpp"},
 		{"vllm", "vllm"},
 		{"lmstudio", "lmstudio"},
+		{"mlx", "mlx"},
 		{"custom", "custom"},
 	}
 
