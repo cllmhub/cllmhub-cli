@@ -47,7 +47,9 @@ func SearchHFModels(ctx context.Context, hfToken, query string) ([]HFModel, erro
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+hfToken)
+	if hfToken != "" {
+		req.Header.Set("Authorization", "Bearer "+hfToken)
+	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -57,7 +59,7 @@ func SearchHFModels(ctx context.Context, hfToken, query string) ([]HFModel, erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("invalid HF token — run 'cllmhub hf-token set <token>' with a valid token")
+		return nil, fmt.Errorf("invalid HF token — run 'cllmhub download --hf-token <token>' with a valid token")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HF API returned status %d", resp.StatusCode)
@@ -94,7 +96,9 @@ func listRepoFiles(ctx context.Context, hfToken, repoID string) ([]HFFile, error
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+hfToken)
+	if hfToken != "" {
+		req.Header.Set("Authorization", "Bearer "+hfToken)
+	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)

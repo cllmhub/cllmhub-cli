@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var downloadHFToken string
+
 var downloadCmd = &cobra.Command{
 	Use:   "download <repo...>",
 	Short: "Download one or more GGUF models from Hugging Face",
@@ -20,20 +22,40 @@ var downloadCmd = &cobra.Command{
 Specify HF repo IDs. The CLI will list available GGUF files and let you pick
 which quantization to download.
 
-Requires a Hugging Face token — set one with 'cllmhub hf-token set <token>'.`,
+For faster downloads and access to gated models, pass a Hugging Face token
+with --hf-token (it will be saved for future use). Without a token, downloads
+may be slower and rate-limited.
+
+Get a token at https://huggingface.co/settings/tokens`,
 	Example: `  cllmhub download TheBloke/Mistral-7B-v0.1-GGUF
+  cllmhub download --hf-token hf_abc123 TheBloke/Mistral-7B-v0.1-GGUF
   cllmhub download TheBloke/Mistral-7B-v0.1-GGUF TheBloke/Llama-2-7B-GGUF`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runDownload,
+}
+
+func init() {
+	downloadCmd.Flags().StringVar(&downloadHFToken, "hf-token", "", "Hugging Face token (saved for future use)")
 }
 
 func runDownload(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	hfToken, err := models.LoadHFToken()
-	if err != nil {
-		return err
+	// If --hf-token was provided, save it for future use.
+	if downloadHFToken != "" {
+		if err := models.SaveHFToken(downloadHFToken); err != nil {
+			return fmt.Errorf("failed to save HF token: %w", err)
+		}
+		fmt.Println("HF token saved for future use")
+	}
+
+	hfToken := models.LoadHFTokenOptional()
+	if hfToken == "" {
+		fmt.Println("Warning: no Hugging Face token configured — downloads may be slower and rate-limited.")
+		fmt.Println("For faster downloads, run with: --hf-token <token>")
+		fmt.Println("Get a token at https://huggingface.co/settings/tokens")
+		fmt.Println()
 	}
 
 	registry, err := models.LoadRegistry()

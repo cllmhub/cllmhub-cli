@@ -40,10 +40,7 @@ func searchHFModels(query string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	hfToken, err := models.LoadHFToken()
-	if err != nil {
-		return err
-	}
+	hfToken := models.LoadHFTokenOptional()
 
 	fmt.Printf("Searching for %q (text-only)...\n\n", query)
 

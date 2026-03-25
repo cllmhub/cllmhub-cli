@@ -29,15 +29,21 @@ func LoadHFToken() (string, error) {
 	data, err := os.ReadFile(filepath.Join(dir, hfTokenFile))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("no Hugging Face token configured — run 'cllmhub hf-token set <token>'")
+			return "", fmt.Errorf("no Hugging Face token configured — run 'cllmhub download --hf-token <token>'")
 		}
 		return "", fmt.Errorf("cannot read HF token: %w", err)
 	}
 	token := strings.TrimSpace(string(data))
 	if token == "" {
-		return "", fmt.Errorf("HF token file is empty — run 'cllmhub hf-token set <token>'")
+		return "", fmt.Errorf("HF token file is empty — run 'cllmhub download --hf-token <token>'")
 	}
 	return token, nil
+}
+
+// LoadHFTokenOptional reads the Hugging Face token, returning an empty string if none is configured.
+func LoadHFTokenOptional() string {
+	token, _ := LoadHFToken()
+	return token
 }
 
 // RemoveHFToken deletes the stored Hugging Face token.

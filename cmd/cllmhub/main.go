@@ -21,16 +21,13 @@ Publish models, create tokens, and share access with anyone.
 
 Quick start with Hugging Face models:
 
-  1. Set your HF token:    cllmhub hf-token set <token>
-     (get one at https://huggingface.co/settings/tokens)
+  1. Search for models:    cllmhub models --search mistral
 
-  2. Search for models:    cllmhub models --search mistral
+  2. Download a model:     cllmhub download TheBloke/Mistral-7B-v0.1-GGUF
 
-  3. Download a model:     cllmhub download TheBloke/Mistral-7B-v0.1-GGUF
+  3. Login to cLLMHub:     cllmhub login
 
-  4. Login to cLLMHub:     cllmhub login
-
-  5. Publish it:           cllmhub publish Mistral-7B-v0.1
+  4. Publish it:           cllmhub publish Mistral-7B-v0.1
 
 Or use an external backend (Ollama, vLLM, LM Studio):
 
@@ -77,7 +74,6 @@ func init() {
 	rootCmd.AddCommand(modelsCmd)
 	rootCmd.AddCommand(unpublishCmd)
 	rootCmd.AddCommand(logsCmd)
-	rootCmd.AddCommand(hfTokenCmd)
 }
 
 func main() {

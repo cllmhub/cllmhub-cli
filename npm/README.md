@@ -23,7 +23,6 @@ The npm package automatically downloads the correct pre-built binary for your pl
 cllmhub login
 
 # Download and publish a Hugging Face model
-cllmhub hf-token set <your-hf-token>
 cllmhub models --search mistral
 cllmhub download TheBloke/Mistral-7B-v0.1-GGUF
 cllmhub publish Mistral-7B-v0.1
@@ -52,11 +51,18 @@ Flags:
 
 #### `cllmhub download <repo...>`
 
-Download GGUF model files from Hugging Face repositories. Lists available GGUF files and lets you pick which quantization to download. Requires a Hugging Face token.
+Download GGUF model files from Hugging Face repositories. Lists available GGUF files and lets you pick which quantization to download.
+
+For faster downloads and access to gated models, pass a Hugging Face token with `--hf-token` (it will be saved for future use). Without a token, downloads may be slower and rate-limited.
 
 ```bash
 cllmhub download TheBloke/Mistral-7B-v0.1-GGUF
-cllmhub download TheBloke/Mistral-7B-v0.1-GGUF TheBloke/Llama-2-7B-GGUF
+cllmhub download --hf-token <token> TheBloke/Mistral-7B-v0.1-GGUF
+```
+
+```
+Flags:
+  --hf-token   Hugging Face token (saved for future use)
 ```
 
 #### `cllmhub delete <model...>`
@@ -67,20 +73,6 @@ Delete one or more downloaded models. Prevents deletion of currently published m
 cllmhub delete mistral-7b
 cllmhub delete m1 m2   # Use aliases
 ```
-
-### Hugging Face token
-
-#### `cllmhub hf-token set <token>`
-
-Save a Hugging Face API token.
-
-#### `cllmhub hf-token remove`
-
-Remove the stored Hugging Face token.
-
-#### `cllmhub hf-token status`
-
-Check if a Hugging Face token is configured.
 
 ### Daemon
 
