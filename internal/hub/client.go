@@ -87,6 +87,9 @@ type Usage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+// TokenFunc returns a fresh access token. Used by SendAlert to avoid stale tokens.
+type TokenFunc func() string
+
 // HubClient manages the WebSocket connection to the gateway for providers.
 type HubClient struct {
 	hubURL        string
@@ -96,6 +99,7 @@ type HubClient struct {
 	description   string
 	maxConcurrent int
 	token         string
+	tokenFunc     TokenFunc
 
 	ws   *websocket.Conn
 	wsMu sync.Mutex
@@ -196,6 +200,9 @@ func Connect(cfg ConnectConfig) (*HubClient, error) {
 		ws.Close()
 		return nil, fmt.Errorf("unexpected response type: %s", env.Type)
 	}
+
+	// Limit inbound WebSocket messages to 16MB to prevent memory exhaustion.
+	ws.SetReadLimit(16 * 1024 * 1024)
 
 	return c, nil
 }
@@ -334,8 +341,8 @@ func (c *HubClient) SendAlert(alert Alert) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	if t := c.currentToken(); t != "" {
+		req.Header.Set("Authorization", "Bearer "+t)
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -345,6 +352,21 @@ func (c *HubClient) SendAlert(alert Alert) {
 		return
 	}
 	resp.Body.Close()
+}
+
+// SetTokenFunc sets a callback to retrieve fresh tokens for HTTP requests (e.g. alerts).
+func (c *HubClient) SetTokenFunc(fn TokenFunc) {
+	c.tokenFunc = fn
+}
+
+// currentToken returns the freshest available token.
+func (c *HubClient) currentToken() string {
+	if c.tokenFunc != nil {
+		if t := c.tokenFunc(); t != "" {
+			return t
+		}
+	}
+	return c.token
 }
 
 // Close closes the WebSocket connection.

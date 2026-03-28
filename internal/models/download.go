@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,8 +67,14 @@ func Download(ctx context.Context, hfToken, repoID, fileName, friendlyName, expe
 		return fmt.Errorf("failed to update registry: %w", err)
 	}
 
-	// Download the file from HF
-	downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", repoID, fileName)
+	// Download the file from HF — escape each path segment to prevent injection
+	// repoID is "owner/repo" so we split and escape each part individually
+	repoParts := strings.SplitN(repoID, "/", 2)
+	if len(repoParts) != 2 {
+		return fmt.Errorf("invalid repo ID %q: expected owner/repo format", repoID)
+	}
+	downloadURL := fmt.Sprintf("https://huggingface.co/%s/%s/resolve/main/%s",
+		url.PathEscape(repoParts[0]), url.PathEscape(repoParts[1]), url.PathEscape(fileName))
 	size, hash, err := downloadFile(ctx, downloadURL, hfToken, destPath, progressFn)
 	if err != nil {
 		entry.State = "error"

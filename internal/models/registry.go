@@ -99,12 +99,12 @@ func LoadRegistry() (*Registry, error) {
 
 // Save writes the registry to disk.
 func (r *Registry) Save() error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.save()
 }
 
-// save writes the registry without acquiring a lock (caller must hold it).
+// save writes the registry without acquiring a lock (caller must hold the write lock).
 func (r *Registry) save() error {
 	rf := registryFile{
 		Entries:   r.Entries,
@@ -120,6 +120,7 @@ func (r *Registry) save() error {
 // Add adds or updates a model entry. New entries get an auto-assigned alias.
 func (r *Registry) Add(entry ModelEntry) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if existing, ok := r.Entries[entry.Name]; ok {
 		entry.Alias = existing.Alias
 	} else {
@@ -127,16 +128,15 @@ func (r *Registry) Add(entry ModelEntry) error {
 		entry.Alias = fmt.Sprintf("m%d", r.nextAlias)
 	}
 	r.Entries[entry.Name] = entry
-	r.mu.Unlock()
-	return r.Save()
+	return r.save()
 }
 
 // Remove removes a model entry.
 func (r *Registry) Remove(name string) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	delete(r.Entries, name)
-	r.mu.Unlock()
-	return r.Save()
+	return r.save()
 }
 
 // Get returns a model entry by name.

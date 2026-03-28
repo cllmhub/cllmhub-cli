@@ -13,6 +13,7 @@ import (
 
 	"github.com/cllmhub/cllmhub-cli/internal/auth"
 	"github.com/cllmhub/cllmhub-cli/internal/backend"
+	"github.com/cllmhub/cllmhub-cli/internal/daemon"
 	"github.com/cllmhub/cllmhub-cli/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -120,6 +121,20 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("\nAuthenticated successfully!")
+
+	// If the daemon is running, notify it that credentials changed so it
+	// drops stale bridges (which were connected under the previous user).
+	if running, _ := daemon.IsRunning(); running {
+		if client, err := daemon.NewClient(); err == nil {
+			if err := client.Reauth(); err != nil {
+				fmt.Printf("Warning: failed to notify daemon of credential change: %v\n", err)
+				fmt.Println("Run 'cllmhub stop && cllmhub start' to apply new credentials.")
+			} else {
+				fmt.Println("Daemon notified — previously published models have been unpublished.")
+				fmt.Println("Run 'cllmhub publish' to re-publish under the new account.")
+			}
+		}
+	}
 
 	// Try to list models from local backends for quick publish.
 	if entries := listLocalModels(); len(entries) > 0 {

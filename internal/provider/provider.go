@@ -105,6 +105,11 @@ func New(cfg Config) (*Provider, error) {
 		logger:         cfg.Logger,
 	}
 
+	// Give the hub client access to fresh tokens for HTTP requests (alerts).
+	if cfg.TokenManager != nil {
+		hubClient.SetTokenFunc(cfg.TokenManager.AccessToken)
+	}
+
 	// Set up audit logger
 	if cfg.LogFile != "" {
 		logger, err := audit.NewLogger(cfg.LogFile)
@@ -177,37 +182,45 @@ const (
 	healthCheckInterval     = 60 * time.Second
 )
 
-// reconnectLoop tries to re-establish the hub WebSocket once per minute.
+// reconnectLoop tries to re-establish the hub WebSocket.
+// Attempts immediately, then waits 60 seconds between retries.
 // Returns true on success, false if the context was cancelled or attempts exhausted.
 func (p *Provider) reconnectLoop() bool {
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-
 	for attempt := 1; attempt <= maxReconnectAttempts; attempt++ {
+		// Wait before retrying (but not before the first attempt).
+		if attempt > 1 {
+			select {
+			case <-p.ctx.Done():
+				return false
+			case <-time.After(60 * time.Second):
+			}
+		}
+
 		select {
 		case <-p.ctx.Done():
 			return false
-		case <-ticker.C:
-			p.logf("⚠ Reconnect attempt %d/%d...\n", attempt, maxReconnectAttempts)
-
-			// Use a fresh token if available.
-			cfg := p.hubCfg
-			if p.tokenMgr != nil {
-				if t := p.tokenMgr.AccessToken(); t != "" {
-					cfg.Token = t
-				}
-			}
-
-			newClient, err := hub.Connect(cfg)
-			if err != nil {
-				p.logf("⚠ Reconnect failed: %v\n", err)
-				continue
-			}
-
-			p.hub = newClient
-			p.logf("✓ Reconnected to cLLMHub network\n")
-			return true
+		default:
 		}
+
+		p.logf("⚠ Reconnect attempt %d/%d...\n", attempt, maxReconnectAttempts)
+
+		// Use a fresh token if available.
+		cfg := p.hubCfg
+		if p.tokenMgr != nil {
+			if t := p.tokenMgr.AccessToken(); t != "" {
+				cfg.Token = t
+			}
+		}
+
+		newClient, err := hub.Connect(cfg)
+		if err != nil {
+			p.logf("⚠ Reconnect failed: %v\n", err)
+			continue
+		}
+
+		p.hub = newClient
+		p.logf("✓ Reconnected to cLLMHub network\n")
+		return true
 	}
 
 	p.logf("✗ Failed to reconnect after %d attempts, giving up\n", maxReconnectAttempts)
@@ -407,8 +420,13 @@ func (p *Provider) handleNonStreamingRequest(req hub.RequestMsg, backendReq *bac
 func (p *Provider) handleStreamingRequest(req hub.RequestMsg, backendReq *backend.Request, start time.Time) {
 	tokenIndex := 0
 
+	// Don't send done=true in the per-token callback; we send the final
+	// done message after the loop with full text and usage attached.
 	resp, err := p.backend.Stream(p.ctx, backendReq, func(token string, done bool) error {
-		err := p.hub.SendStreamToken(req.RequestID, token, tokenIndex, done, "", nil)
+		if done {
+			return nil // skip — final message sent below
+		}
+		err := p.hub.SendStreamToken(req.RequestID, token, tokenIndex, false, "", nil)
 		tokenIndex++
 		return err
 	})
@@ -431,7 +449,7 @@ func (p *Provider) handleStreamingRequest(req hub.RequestMsg, backendReq *backen
 		return
 	}
 
-	// Send final token with usage
+	// Send single final message with usage
 	usage := &hub.Usage{
 		PromptTokens:     resp.PromptTokens,
 		CompletionTokens: resp.CompletionTokens,

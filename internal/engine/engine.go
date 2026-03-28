@@ -34,6 +34,9 @@ type Engine struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	logFile      *os.File
+	waitOnce     sync.Once
+	waitErr      error
+	waitDone     chan struct{}
 }
 
 // New creates a new Engine instance.
@@ -102,12 +105,21 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("failed to start llama-server: %w", err)
 	}
 
+	waitDone := make(chan struct{})
 	e.mu.Lock()
 	e.cmd = cmd
 	e.ctx = ctx
 	e.cancel = cancel
 	e.logFile = logFile
+	e.waitOnce = sync.Once{}
+	e.waitDone = waitDone
 	e.mu.Unlock()
+
+	// Single goroutine that calls cmd.Wait() exactly once.
+	go func() {
+		e.waitErr = cmd.Wait()
+		close(waitDone)
+	}()
 
 	e.logger.Info("llama-server starting", "pid", cmd.Process.Pid, "port", e.port, "models_dir", modelsDir, "config", e.config.Summary())
 
@@ -139,6 +151,7 @@ func (e *Engine) Stop() {
 	cmd := e.cmd
 	cancel := e.cancel
 	logFile := e.logFile
+	waitDone := e.waitDone
 	e.state = "stopped"
 	e.restartCount = 0
 	e.mu.Unlock()
@@ -147,19 +160,12 @@ func (e *Engine) Stop() {
 		cancel()
 	}
 
-	if cmd != nil && cmd.Process != nil {
-		// Wait for process to exit with grace period
-		done := make(chan struct{})
-		go func() {
-			cmd.Wait()
-			close(done)
-		}()
-
+	if cmd != nil && cmd.Process != nil && waitDone != nil {
 		select {
-		case <-done:
+		case <-waitDone:
 		case <-time.After(shutdownGrace):
 			cmd.Process.Kill()
-			<-done
+			<-waitDone
 		}
 	}
 
@@ -242,15 +248,15 @@ func (e *Engine) healthLoop() {
 
 func (e *Engine) watchProcess() {
 	e.mu.RLock()
-	cmd := e.cmd
 	ctx := e.ctx
+	waitDone := e.waitDone
 	e.mu.RUnlock()
 
-	if cmd == nil {
+	if waitDone == nil {
 		return
 	}
 
-	err := cmd.Wait()
+	<-waitDone
 
 	// Check if we were intentionally stopped
 	select {
@@ -259,7 +265,7 @@ func (e *Engine) watchProcess() {
 	default:
 	}
 
-	e.logger.Error("llama-server exited unexpectedly", "error", err)
+	e.logger.Error("llama-server exited unexpectedly", "error", e.waitErr)
 
 	e.mu.Lock()
 	e.restartCount++

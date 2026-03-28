@@ -40,12 +40,27 @@ func NewBridgeManager(logger *slog.Logger) *BridgeManager {
 
 // StartBridge creates and starts a bridge for a model.
 func (bm *BridgeManager) StartBridge(model string, enginePort int, hubURL, token string, tokenMgr *auth.TokenManager) error {
+	// Reserve the slot under the lock to prevent concurrent publishes of the same model.
 	bm.mu.Lock()
 	if _, exists := bm.bridges[model]; exists {
 		bm.mu.Unlock()
 		return fmt.Errorf("model %q is already published", model)
 	}
+	placeholder := &Bridge{model: model, done: make(chan struct{})}
+	bm.bridges[model] = placeholder
 	bm.mu.Unlock()
+
+	// On failure, remove the placeholder.
+	success := false
+	defer func() {
+		if !success {
+			bm.mu.Lock()
+			if bm.bridges[model] == placeholder {
+				delete(bm.bridges, model)
+			}
+			bm.mu.Unlock()
+		}
+	}()
 
 	// Resolve the engine model name from the GGUF filename
 	// (llama-server router mode uses the filename stem as the model ID)
@@ -89,6 +104,7 @@ func (bm *BridgeManager) StartBridge(model string, enginePort int, hubURL, token
 	bm.mu.Lock()
 	bm.bridges[model] = bridge
 	bm.mu.Unlock()
+	success = true
 
 	// Run provider in background
 	go func() {
@@ -107,12 +123,27 @@ func (bm *BridgeManager) StartBridge(model string, enginePort int, hubURL, token
 
 // StartExternalBridge creates and starts a bridge for a model served by an external backend.
 func (bm *BridgeManager) StartExternalBridge(spec PublishModelSpec, hubURL, token string, tokenMgr *auth.TokenManager) error {
+	// Reserve the slot under the lock to prevent concurrent publishes of the same model.
 	bm.mu.Lock()
 	if _, exists := bm.bridges[spec.Name]; exists {
 		bm.mu.Unlock()
 		return fmt.Errorf("model %q is already published", spec.Name)
 	}
+	placeholder := &Bridge{model: spec.Name, done: make(chan struct{})}
+	bm.bridges[spec.Name] = placeholder
 	bm.mu.Unlock()
+
+	// On failure, remove the placeholder.
+	success := false
+	defer func() {
+		if !success {
+			bm.mu.Lock()
+			if bm.bridges[spec.Name] == placeholder {
+				delete(bm.bridges, spec.Name)
+			}
+			bm.mu.Unlock()
+		}
+	}()
 
 	maxConcurrent := spec.MaxConcurrent
 	if maxConcurrent <= 0 {
@@ -153,6 +184,7 @@ func (bm *BridgeManager) StartExternalBridge(spec PublishModelSpec, hubURL, toke
 	bm.mu.Lock()
 	bm.bridges[spec.Name] = bridge
 	bm.mu.Unlock()
+	success = true
 
 	go func() {
 		defer close(done)

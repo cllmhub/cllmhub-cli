@@ -71,19 +71,31 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// tailFile reads the last n lines from a file.
+// tailFile reads the last n lines from a file using a ring buffer
+// to avoid loading the entire file into memory.
 func tailFile(f *os.File, n int) ([]string, error) {
 	scanner := bufio.NewScanner(f)
-	var allLines []string
+	ring := make([]string, n)
+	total := 0
 	for scanner.Scan() {
-		allLines = append(allLines, scanner.Text())
+		ring[total%n] = scanner.Text()
+		total++
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 
-	if len(allLines) <= n {
-		return allLines, nil
+	if total == 0 {
+		return nil, nil
 	}
-	return allLines[len(allLines)-n:], nil
+	if total <= n {
+		return ring[:total], nil
+	}
+
+	// Unwrap the ring buffer into order
+	start := total % n
+	result := make([]string, n)
+	copy(result, ring[start:])
+	copy(result[n-start:], ring[:start])
+	return result, nil
 }

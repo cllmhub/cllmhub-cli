@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	llamaCppRepo = "ggml-org/llama.cpp"
+	llamaCppRepo       = "ggml-org/llama.cpp"
+	maxExtractFileSize = 2 * 1024 * 1024 * 1024 // 2GB per extracted file
 )
 
 // isSharedLib returns true if the filename looks like a shared library.
@@ -221,7 +222,7 @@ func extractFromTarGz(r io.Reader, binDir, binaryName string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(f, tr); err != nil {
+		if _, err := io.Copy(f, io.LimitReader(tr, maxExtractFileSize)); err != nil {
 			f.Close()
 			return err
 		}
@@ -282,7 +283,7 @@ func extractFromZip(r io.Reader, binDir, binaryName string) error {
 			rc.Close()
 			return err
 		}
-		if _, err := io.Copy(out, rc); err != nil {
+		if _, err := io.Copy(out, io.LimitReader(rc, maxExtractFileSize)); err != nil {
 			out.Close()
 			rc.Close()
 			return err
