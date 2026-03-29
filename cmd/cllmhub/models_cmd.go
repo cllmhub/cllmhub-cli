@@ -107,17 +107,18 @@ func showDownloadedModels() error {
 		return nil
 	}
 
-	fmt.Printf("%-6s %-25s %-10s %-12s %-10s %s\n", "ALIAS", "NAME", "SIZE", "PROVIDER", "STATUS", "REPO")
+	fmt.Printf("%-6s %-25s %-10s %-20s %-10s %s\n", "ALIAS", "NAME", "SIZE", "PROVIDER", "STATUS", "REPO")
 	for _, e := range entries {
 		sizeStr := formatSize(e.SizeBytes)
-		providerID := "-"
+		providerLabel := "-"
 		if info, ok := published[e.Name]; ok {
-			providerID = info.providerID
+			providerLabel = fmt.Sprintf("provider:%s", info.providerID)
 		}
-		fmt.Printf("%-6s %-25s %-10s %-12s %-10s %s\n", e.Alias, e.Name, sizeStr, providerID, e.State, e.RepoID)
+		fmt.Printf("%-6s %-25s %-10s %-20s %-10s %s\n", e.Alias, e.Name, sizeStr, providerLabel, e.State, e.RepoID)
 	}
 	for _, ext := range externals {
-		fmt.Printf("%-6s %-25s %-10s %-12s %-10s %s\n", "-", ext.name, "-", ext.providerID, "published", "-")
+		providerLabel := fmt.Sprintf("provider:%s", ext.providerID)
+		fmt.Printf("%-6s %-25s %-10s %-20s %-10s %s\n", "-", ext.name, "-", providerLabel, "published", "-")
 	}
 
 	return nil

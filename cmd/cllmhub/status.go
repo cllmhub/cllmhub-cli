@@ -53,15 +53,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			if backendLabel == "" {
 				backendLabel = "engine"
 			}
-			providerLabel := m.ProviderID
-			if providerLabel == "" {
-				providerLabel = "-"
+			providerLabel := "-"
+			if m.ProviderID != "" {
+				providerLabel = fmt.Sprintf("provider:%s", m.ProviderID)
 			}
 			stateStr := fmt.Sprintf("%s (%s)", m.State, backendLabel)
 			if alias != "" {
-				fmt.Printf("  %-6s %-20s %-10s %s\n", alias, m.Name, providerLabel, stateStr)
+				fmt.Printf("  %-6s %-20s %-20s %s\n", alias, m.Name, providerLabel, stateStr)
 			} else {
-				fmt.Printf("  %-6s %-20s %-10s %s\n", "-", m.Name, providerLabel, stateStr)
+				fmt.Printf("  %-6s %-20s %-20s %s\n", "-", m.Name, providerLabel, stateStr)
 			}
 		}
 	}
