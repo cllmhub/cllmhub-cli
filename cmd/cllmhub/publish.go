@@ -15,6 +15,7 @@ var (
 	publishModel         string
 	publishBackend       string
 	publishBackendURL    string
+	publishBackendAPIKey string
 	publishDescription   string
 	publishMaxConcurrent int
 )
@@ -46,6 +47,7 @@ func init() {
 	publishCmd.Flags().StringVarP(&publishModel, "model", "m", "", "Model name to publish")
 	publishCmd.Flags().StringVarP(&publishBackend, "backend", "b", "ollama", "Backend type: ollama, llama.cpp, vllm, lmstudio, mlx")
 	publishCmd.Flags().StringVar(&publishBackendURL, "backend-url", "", "Backend endpoint URL (overrides default for the backend type)")
+	publishCmd.Flags().StringVar(&publishBackendAPIKey, "api-key", "", "API key for the backend server")
 	publishCmd.Flags().StringVarP(&publishDescription, "description", "d", "", "Model description")
 	publishCmd.Flags().IntVarP(&publishMaxConcurrent, "max-concurrent", "c", 0, "Maximum concurrent requests (0 = auto-detect)")
 }
@@ -68,7 +70,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		if publishModel == "" {
 			return fmt.Errorf("model name is required: use -m <model>")
 		}
-		return publishExternalViaDaemon(publishModel, publishBackend, publishBackendURL, publishDescription, publishMaxConcurrent)
+		return publishExternalViaDaemon(publishModel, publishBackend, publishBackendURL, publishBackendAPIKey, publishDescription, publishMaxConcurrent)
 	}
 
 	// Interactive TUI selection
@@ -93,7 +95,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			return publishViaDaemon([]string{selected.name})
 		}
 
-		return publishExternalViaDaemon(selected.name, selected.source, publishBackendURL, publishDescription, publishMaxConcurrent)
+		return publishExternalViaDaemon(selected.name, selected.source, publishBackendURL, publishBackendAPIKey, publishDescription, publishMaxConcurrent)
 	}
 }
 
@@ -116,7 +118,11 @@ func listAllPublishable() []publishableModel {
 	}
 
 	// External backend models
-	for _, e := range listLocalModels() {
+	for _, e := range listLocalModels(publishBackendAPIKey) {
+		if e.needsKey {
+			fmt.Printf("  ⚠ %s server detected but requires authentication — use: --api-key <key>\n", e.backend)
+			continue
+		}
 		all = append(all, publishableModel{
 			name:   e.name,
 			source: e.backend,
@@ -180,7 +186,7 @@ func publishViaDaemon(modelNames []string) error {
 }
 
 // publishExternalViaDaemon publishes a model served by an external backend through the daemon.
-func publishExternalViaDaemon(model, backendType, backendURL, description string, maxConcurrent int) error {
+func publishExternalViaDaemon(model, backendType, backendURL, apiKey, description string, maxConcurrent int) error {
 	if !regexp.MustCompile(`^[a-zA-Z0-9._:/-]+$`).MatchString(model) {
 		return fmt.Errorf("invalid model name %q: only alphanumerics, dots, underscores, colons, slashes, and hyphens are allowed", model)
 	}
@@ -201,6 +207,7 @@ func publishExternalViaDaemon(model, backendType, backendURL, description string
 		Name:          model,
 		BackendType:   backendType,
 		BackendURL:    backendURL,
+		BackendAPIKey: apiKey,
 		MaxConcurrent: maxConcurrent,
 		Description:   description,
 	}

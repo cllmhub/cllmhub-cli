@@ -18,6 +18,7 @@ const defaultMLXURL = "http://localhost:8080"
 type MLX struct {
 	url    string
 	model  string
+	apiKey string
 	client *http.Client
 }
 
@@ -28,9 +29,14 @@ func NewMLX(cfg Config) (*MLX, error) {
 		url = defaultMLXURL
 	}
 
+	if err := CheckInsecureAPIKey(url, cfg.APIKey); err != nil {
+		return nil, err
+	}
+
 	return &MLX{
-		url:   url,
-		model: cfg.Model,
+		url:    url,
+		model:  cfg.Model,
+		apiKey: cfg.APIKey,
 		client: &http.Client{
 			Timeout: 5 * time.Minute,
 		},
@@ -68,6 +74,9 @@ func (m *MLX) Complete(ctx context.Context, req *Request) (*Response, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if m.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+m.apiKey)
+	}
 
 	resp, err := m.client.Do(httpReq)
 	if err != nil {
@@ -118,6 +127,9 @@ func (m *MLX) Stream(ctx context.Context, req *Request, callback func(token stri
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if m.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+m.apiKey)
+	}
 
 	resp, err := m.client.Do(httpReq)
 	if err != nil {
@@ -186,6 +198,9 @@ func (m *MLX) ListModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if m.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+m.apiKey)
+	}
 
 	resp, err := m.client.Do(req)
 	if err != nil {
@@ -223,6 +238,9 @@ func (m *MLX) Health(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", m.url+"/v1/models", nil)
 	if err != nil {
 		return err
+	}
+	if m.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+m.apiKey)
 	}
 
 	resp, err := m.client.Do(req)

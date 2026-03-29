@@ -150,9 +150,10 @@ func (bm *BridgeManager) StartExternalBridge(spec PublishModelSpec, hubURL, toke
 		MaxConcurrent: spec.MaxConcurrent,
 		Token:         token,
 		Backend: backend.Config{
-			Type:  spec.BackendType,
-			URL:   spec.BackendURL,
-			Model: spec.Name,
+			Type:   spec.BackendType,
+			URL:    spec.BackendURL,
+			Model:  spec.Name,
+			APIKey: spec.BackendAPIKey,
 		},
 		HubURL:       hubURL,
 		TokenManager: tokenMgr,

@@ -175,51 +175,73 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 // modelEntry holds a model name and the backend it came from.
 type modelEntry struct {
-	name    string
-	backend string
+	name     string
+	backend  string
+	needsKey bool // server detected but requires --api-key
 }
 
 // listLocalModels queries Ollama, vLLM, LM Studio, and MLX for available models.
-// Returns all models found across all backends.
-func listLocalModels() []modelEntry {
+// Returns all models found across all backends. An optional API key is passed
+// to backends that may require authentication (e.g. MLX, vLLM).
+// If a backend responds with an auth error, a placeholder entry with needsKey=true
+// is added so the user knows the server is there.
+func listLocalModels(apiKey ...string) []modelEntry {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	key := ""
+	if len(apiKey) > 0 {
+		key = apiKey[0]
+	}
+
+	type probe struct {
+		name       string
+		defaultURL string
+		newFunc    func(backend.Config) (backend.Backend, error)
+	}
+	probes := []probe{
+		{"ollama", "http://localhost:11434", func(c backend.Config) (backend.Backend, error) { return backend.NewOllama(c) }},
+		{"vllm", "http://localhost:8000", func(c backend.Config) (backend.Backend, error) { return backend.NewVLLM(c) }},
+		{"lmstudio", "http://localhost:1234", func(c backend.Config) (backend.Backend, error) { return backend.NewLMStudio(c) }},
+		{"mlx", "http://localhost:8080", func(c backend.Config) (backend.Backend, error) { return backend.NewMLX(c) }},
+	}
+
 	var entries []modelEntry
-
-	if b, err := backend.NewOllama(backend.Config{}); err == nil {
-		if models, err := b.ListModels(ctx); err == nil {
-			for _, m := range models {
-				entries = append(entries, modelEntry{name: m, backend: "ollama"})
-			}
+	for _, p := range probes {
+		b, err := p.newFunc(backend.Config{APIKey: key})
+		if err != nil {
+			continue
 		}
-	}
-
-	if b, err := backend.NewVLLM(backend.Config{}); err == nil {
-		if models, err := b.ListModels(ctx); err == nil {
-			for _, m := range models {
-				entries = append(entries, modelEntry{name: m, backend: "vllm"})
+		models, err := b.ListModels(ctx)
+		if err != nil {
+			// Check if the server is there but requires auth.
+			if isAuthError(p.defaultURL) {
+				entries = append(entries, modelEntry{backend: p.name, needsKey: true})
 			}
+			continue
 		}
-	}
-
-	if b, err := backend.NewLMStudio(backend.Config{}); err == nil {
-		if models, err := b.ListModels(ctx); err == nil {
-			for _, m := range models {
-				entries = append(entries, modelEntry{name: m, backend: "lmstudio"})
-			}
-		}
-	}
-
-	if b, err := backend.NewMLX(backend.Config{}); err == nil {
-		if models, err := b.ListModels(ctx); err == nil {
-			for _, m := range models {
-				entries = append(entries, modelEntry{name: m, backend: "mlx"})
-			}
+		for _, m := range models {
+			entries = append(entries, modelEntry{name: m, backend: p.name})
 		}
 	}
 
 	return entries
+}
+
+// isAuthError makes a quick probe to see if a server responds with 401/403.
+func isAuthError(url string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden
 }
 
 // fetchCurrentUsername tries to get the username from the hub. Returns empty string on any failure.

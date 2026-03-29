@@ -51,6 +51,7 @@ type PublishModelSpec struct {
 	Name          string `json:"name"`
 	BackendType   string `json:"backend_type,omitempty"`   // "ollama", "vllm", "lmstudio", "mlx", "llamacpp", "" (= engine/GGUF)
 	BackendURL    string `json:"backend_url,omitempty"`    // override default backend URL
+	BackendAPIKey string `json:"backend_api_key,omitempty"`
 	MaxConcurrent int    `json:"max_concurrent,omitempty"` // 0 = auto-detect on first request
 	Description   string `json:"description,omitempty"`
 }
