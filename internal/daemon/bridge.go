@@ -71,18 +71,32 @@ func (bm *BridgeManager) StartBridge(model string, enginePort int, hubURL, token
 		}
 	}
 
+	backendCfg := backend.Config{
+		Type:  "llamacpp",
+		URL:   fmt.Sprintf("http://127.0.0.1:%d", enginePort),
+		Model: engineModel,
+	}
+
+	// Query the engine for the actual number of concurrent slots.
+	maxConcurrent := 1
+	if b, err := backend.New(backendCfg); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		slots, err := b.ConcurrentSlots(ctx)
+		cancel()
+		if err == nil && slots > 0 {
+			maxConcurrent = slots
+			bm.logger.Info("detected engine slots", "model", model, "slots", slots)
+		}
+	}
+
 	cfg := provider.Config{
 		Model:         model,
-		MaxConcurrent: 1,
+		MaxConcurrent: maxConcurrent,
 		Token:         token,
-		Backend: backend.Config{
-			Type:  "llamacpp",
-			URL:   fmt.Sprintf("http://127.0.0.1:%d", enginePort),
-			Model: engineModel,
-		},
-		HubURL:       hubURL,
-		TokenManager: tokenMgr,
-		Logger:       bm.logger,
+		Backend:       backendCfg,
+		HubURL:        hubURL,
+		TokenManager:  tokenMgr,
+		Logger:        bm.logger,
 	}
 
 	p, err := provider.New(cfg)
@@ -145,9 +159,22 @@ func (bm *BridgeManager) StartExternalBridge(spec PublishModelSpec, hubURL, toke
 		}
 	}()
 
-	maxConcurrent := spec.MaxConcurrent
-	if maxConcurrent <= 0 {
-		maxConcurrent = 1
+	backendCfg := backend.Config{
+		Type:  spec.BackendType,
+		URL:   spec.BackendURL,
+		Model: spec.Name,
+	}
+
+	// Auto-detect concurrent slots from the backend.
+	maxConcurrent := 1
+	if b, err := backend.New(backendCfg); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		slots, err := b.ConcurrentSlots(ctx)
+		cancel()
+		if err == nil && slots > 0 {
+			maxConcurrent = slots
+			bm.logger.Info("detected backend slots", "model", spec.Name, "backend", spec.BackendType, "slots", slots)
+		}
 	}
 
 	cfg := provider.Config{
@@ -155,14 +182,10 @@ func (bm *BridgeManager) StartExternalBridge(spec PublishModelSpec, hubURL, toke
 		Description:   spec.Description,
 		MaxConcurrent: maxConcurrent,
 		Token:         token,
-		Backend: backend.Config{
-			Type:  spec.BackendType,
-			URL:   spec.BackendURL,
-			Model: spec.Name,
-		},
-		HubURL:       hubURL,
-		TokenManager: tokenMgr,
-		Logger:       bm.logger,
+		Backend:       backendCfg,
+		HubURL:        hubURL,
+		TokenManager:  tokenMgr,
+		Logger:        bm.logger,
 	}
 
 	p, err := provider.New(cfg)
