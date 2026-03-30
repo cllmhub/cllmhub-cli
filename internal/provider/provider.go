@@ -184,7 +184,7 @@ func (p *Provider) Start(ctx context.Context) error {
 
 const (
 	maxReconnectAttempts    = 5
-	maxHealthCheckAttempts  = 5
+	maxHealthCheckAttempts  = 2
 	healthCheckInterval     = 60 * time.Second
 )
 
@@ -234,7 +234,7 @@ func (p *Provider) reconnectLoop() bool {
 }
 
 // onModelServerDown is triggered when a backend request fails with a connection error.
-// It sends an alert, runs health checks, and either recovers or shuts down.
+// It unpublishes the model immediately, runs health checks, and either republishes or stays unpublished.
 func (p *Provider) onModelServerDown() {
 	p.mu.Lock()
 	if !p.modelServerUp {
@@ -245,16 +245,21 @@ func (p *Provider) onModelServerDown() {
 	p.mu.Unlock()
 
 	p.logf("\n⚠ Model server unreachable: %s\n", p.backend.URL())
-	p.logf("  Attempting recovery — %d checks, 60 seconds apart...\n", maxHealthCheckAttempts)
 
-	// Alert 1: model_server_unreachable
+	// Alert: model_server_unreachable
 	p.hub.SendAlert(hub.Alert{
 		ProviderID: p.id,
 		Model:      p.model,
 		AlertType:  "model_server_unreachable",
-		Message:    fmt.Sprintf("Model server unreachable at %s, attempting recovery (%d attempts)", p.backend.URL(), maxHealthCheckAttempts),
+		Message:    fmt.Sprintf("Model server unreachable at %s, unpublishing model", p.backend.URL()),
 		Timestamp:  time.Now(),
 	})
+
+	// Unpublish: close the hub WebSocket so the model is no longer available.
+	p.logf("⚠ Unpublishing model %q\n", p.model)
+	p.hub.Close()
+
+	p.logf("  Will check again — %d attempts, 60 seconds apart...\n", maxHealthCheckAttempts)
 
 	ticker := time.NewTicker(healthCheckInterval)
 	defer ticker.Stop()
@@ -273,34 +278,55 @@ func (p *Provider) onModelServerDown() {
 				continue
 			}
 
-			// Recovered
+			// Backend recovered — republish by reconnecting to hub.
+			p.logf("✓ Model server recovered, republishing...\n")
+
+			cfg := p.hubCfg
+			if p.tokenMgr != nil {
+				if t := p.tokenMgr.AccessToken(); t != "" {
+					cfg.Token = t
+				}
+			}
+
+			newClient, err := hub.Connect(cfg)
+			if err != nil {
+				p.logf("✗ Failed to republish: %v\n", err)
+				continue
+			}
+
+			p.hub = newClient
+			if p.tokenMgr != nil {
+				p.hub.SetTokenFunc(p.tokenMgr.AccessToken)
+			}
+
 			p.mu.Lock()
 			p.modelServerUp = true
 			p.mu.Unlock()
 
-			p.logf("✓ Model server recovered\n")
+			p.logf("✓ Model %q republished\n", p.model)
 
-			// Alert 3: model_server_recovered
 			p.hub.SendAlert(hub.Alert{
 				ProviderID: p.id,
 				Model:      p.model,
 				AlertType:  "model_server_recovered",
-				Message:    "Model server recovered",
+				Message:    "Model server recovered, model republished",
 				Timestamp:  time.Now(),
 			})
+
+			// Send a heartbeat so the provider is immediately visible again.
+			p.sendHeartbeat()
 			return
 		}
 	}
 
-	// All attempts failed
-	p.logf("✗ Model server down after %d attempts, shutting down\n", maxHealthCheckAttempts)
+	// All attempts failed — stay unpublished.
+	p.logf("✗ Model server down after %d attempts, staying unpublished\n", maxHealthCheckAttempts)
 
-	// Alert 2: model_server_down
 	p.hub.SendAlert(hub.Alert{
 		ProviderID: p.id,
 		Model:      p.model,
 		AlertType:  "model_server_down",
-		Message:    fmt.Sprintf("Model server down after %d attempts, provider shutting down", maxHealthCheckAttempts),
+		Message:    fmt.Sprintf("Model server down after %d attempts, model stays unpublished", maxHealthCheckAttempts),
 		Timestamp:  time.Now(),
 	})
 
