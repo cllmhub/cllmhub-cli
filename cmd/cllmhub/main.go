@@ -23,7 +23,7 @@ Quick start:
 
   1. Login to cLLMHub:     cllmhub login
 
-  2. Publish from Ollama:  cllmhub publish -m llama3 -b ollama
+  2. Publish a model:      cllmhub publish
 
   3. Check status:         cllmhub status
 

@@ -19,10 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/cllmhub/cllmhub-cli/main/install.sh
 # Authenticate
 cllmhub login
 
-# Publish from an external backend
-cllmhub publish -m llama3 -b ollama
-
-# Or discover and select interactively
+# Publish a model (interactive selection)
 cllmhub publish
 ```
 
