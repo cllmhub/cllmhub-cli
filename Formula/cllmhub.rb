@@ -1,26 +1,26 @@
 class Cllmhub < Formula
   desc "Turn your local LLM into a production API"
   homepage "https://github.com/cllmhub/cllmhub-cli"
-  version "0.5.11"
+  version "0.5.12"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/cllmhub/cllmhub-cli/releases/download/v#{version}/cllmhub-darwin-arm64"
-      sha256 "915ea353ad18ce893df1b846eb21a0068ba5f0c0e9045fe406c60baef613573a"
+      sha256 "2c2298a73ac6c077ea7c396bb9cac8ca963e162d98c614dbd252defd0cb56ff7"
     else
       url "https://github.com/cllmhub/cllmhub-cli/releases/download/v#{version}/cllmhub-darwin-amd64"
-      sha256 "915ea353ad18ce893df1b846eb21a0068ba5f0c0e9045fe406c60baef613573a"
+      sha256 "2c2298a73ac6c077ea7c396bb9cac8ca963e162d98c614dbd252defd0cb56ff7"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/cllmhub/cllmhub-cli/releases/download/v#{version}/cllmhub-linux-arm64"
-      sha256 "915ea353ad18ce893df1b846eb21a0068ba5f0c0e9045fe406c60baef613573a"
+      sha256 "2c2298a73ac6c077ea7c396bb9cac8ca963e162d98c614dbd252defd0cb56ff7"
     else
       url "https://github.com/cllmhub/cllmhub-cli/releases/download/v#{version}/cllmhub-linux-amd64"
-      sha256 "915ea353ad18ce893df1b846eb21a0068ba5f0c0e9045fe406c60baef613573a"
+      sha256 "2c2298a73ac6c077ea7c396bb9cac8ca963e162d98c614dbd252defd0cb56ff7"
     end
   end
 
