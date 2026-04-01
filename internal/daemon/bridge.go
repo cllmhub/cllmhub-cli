@@ -184,9 +184,10 @@ func (bm *BridgeManager) IsPublished(model string) bool {
 
 // BridgeInfo describes a published model and its backend.
 type BridgeInfo struct {
-	Name       string
-	Backend    string // "ollama", "vllm", etc.
-	ProviderID string // cLLMHub provider ID
+	Name          string
+	Backend       string // "ollama", "vllm", etc.
+	ProviderID    string // cLLMHub provider ID
+	MaxConcurrent int    // concurrent request slots
 }
 
 // PublishedModels returns the list of currently published model names.
@@ -212,7 +213,11 @@ func (bm *BridgeManager) PublishedModelsWithBackend() []BridgeInfo {
 		if b.provider != nil {
 			providerID = b.provider.Status().ProviderID
 		}
-		infos = append(infos, BridgeInfo{Name: b.model, Backend: b.backendType, ProviderID: providerID})
+		var maxConcurrent int
+		if b.provider != nil {
+			maxConcurrent = b.provider.Status().MaxConcurrent
+		}
+		infos = append(infos, BridgeInfo{Name: b.model, Backend: b.backendType, ProviderID: providerID, MaxConcurrent: maxConcurrent})
 	}
 	return infos
 }

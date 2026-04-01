@@ -40,10 +40,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Println("\nPublished models:")
 		for _, m := range status.Models {
+			concurrent := ""
+			if m.MaxConcurrent > 0 {
+				concurrent = fmt.Sprintf(", slots:%d", m.MaxConcurrent)
+			}
 			if m.ProviderID != "" {
-				fmt.Printf("  %-20s %s (provider:%s, %s)\n", m.Name, m.State, m.ProviderID, m.Backend)
+				fmt.Printf("  %-20s %s (provider:%s, %s%s)\n", m.Name, m.State, m.ProviderID, m.Backend, concurrent)
 			} else {
-				fmt.Printf("  %-20s %s (%s)\n", m.Name, m.State, m.Backend)
+				fmt.Printf("  %-20s %s (%s%s)\n", m.Name, m.State, m.Backend, concurrent)
 			}
 		}
 	}

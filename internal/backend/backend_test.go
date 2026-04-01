@@ -333,12 +333,8 @@ func TestProbeConcurrentSlots_Parallel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConcurrentSlots: %v", err)
 	}
-	// Should detect at least 2 (power of 2 up to 4)
-	if n < 2 {
-		t.Errorf("ConcurrentSlots = %d, want >= 2", n)
-	}
-	if n > maxParallel {
-		t.Errorf("ConcurrentSlots = %d, want <= %d", n, maxParallel)
+	if n != maxParallel {
+		t.Errorf("ConcurrentSlots = %d, want %d", n, maxParallel)
 	}
 }
 

@@ -109,12 +109,14 @@ func IsConnectionError(err error) bool {
 // supports by sending parallel 1-token requests and measuring wall-clock time.
 //
 // It first sends a single request to establish baseline latency, then sends
-// batches of 2, 4, 8, … concurrent requests. As long as the batch completes
-// within 1.5× the baseline, the requests ran in parallel. Once the batch time
-// exceeds that threshold the previous batch size is returned. Caps at 10.
+// batches of 2, 4, 8, … concurrent requests to find the rough ceiling. Once
+// a batch exceeds 1.5× the baseline, it binary-searches between the last good
+// and first bad batch sizes to find the exact slot count.
 //
 // Returns 0 if the baseline request fails (backend may be down or model not loaded).
 func ProbeConcurrentSlots(ctx context.Context, b Backend) (int, error) {
+	const maxProbe = 10
+
 	probe := &Request{
 		Prompt:    "hi",
 		MaxTokens: 1,
@@ -130,11 +132,14 @@ func ProbeConcurrentSlots(ctx context.Context, b Backend) (int, error) {
 	// Threshold: if a batch takes longer than this, requests were queued.
 	threshold := baseline * 3 / 2 // 1.5× baseline
 
-	lastGood := 1
-	for n := 2; n <= 10; n *= 2 {
+	// probeBatch sends n concurrent requests and returns true if they all
+	// completed within the threshold (i.e. ran in parallel).
+	probeBatch := func(n int) bool {
 		batchCtx, cancel := context.WithTimeout(ctx, baseline*time.Duration(n+1))
+		defer cancel()
 
 		errs := make(chan error, n)
+		batchStart := timeNow()
 		for i := 0; i < n; i++ {
 			go func() {
 				_, err := b.Complete(batchCtx, probe)
@@ -142,23 +147,46 @@ func ProbeConcurrentSlots(ctx context.Context, b Backend) (int, error) {
 			}()
 		}
 
-		start := timeNow()
 		failed := false
 		for i := 0; i < n; i++ {
 			if err := <-errs; err != nil {
 				failed = true
 			}
 		}
-		elapsed := timeSince(start)
-		cancel()
+		elapsed := timeSince(batchStart)
 
-		if failed || elapsed > threshold {
-			break
-		}
-		lastGood = n
+		return !failed && elapsed <= threshold
 	}
 
-	return lastGood, nil
+	// Phase 1: scan upward in powers of 2 to find the ceiling.
+	lastGood := 1
+	firstBad := 0
+	for n := 2; n <= maxProbe; n *= 2 {
+		if probeBatch(n) {
+			lastGood = n
+		} else {
+			firstBad = n
+			break
+		}
+	}
+
+	// All batches passed — backend handles maxProbe concurrent requests.
+	if firstBad == 0 {
+		return lastGood, nil
+	}
+
+	// Phase 2: binary search between lastGood and firstBad for exact count.
+	lo, hi := lastGood, firstBad
+	for lo+1 < hi {
+		mid := (lo + hi) / 2
+		if probeBatch(mid) {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+
+	return lo, nil
 }
 
 // timeNow and timeSince are variables so tests can override them.

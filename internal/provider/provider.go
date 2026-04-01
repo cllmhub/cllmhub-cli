@@ -28,12 +28,12 @@ type Provider struct {
 	mu             sync.Mutex
 	requestCount   int64
 	queueDepth     int
+	peakInflight   int  // highest observed successful concurrency
 	startTime      time.Time
 	modelServerUp  bool
 
-	autoDetectSlots bool      // true when MaxConcurrent was 0 (auto-detect)
-	slotsOnce       sync.Once // lazy-detect concurrent slots on first request
-	watch           bool      // proactively watch backend health
+	autoDetectSlots bool // true when MaxConcurrent was 0 (auto-detect)
+	watch           bool // proactively watch backend health
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -76,11 +76,12 @@ func New(cfg Config) (*Provider, error) {
 
 	providerID := uuid.New().String()[:8]
 
-	// MaxConcurrent 0 means auto-detect on first request; register with 1 initially.
+	// MaxConcurrent 0 means auto-detect from live traffic; register with 5
+	// and reduce if the backend cannot handle the concurrency.
 	maxConcurrent := cfg.MaxConcurrent
 	registerConcurrent := maxConcurrent
 	if registerConcurrent < 1 {
-		registerConcurrent = 1
+		registerConcurrent = 5
 	}
 
 	hubCfg := hub.ConnectConfig{
@@ -419,32 +420,49 @@ func (p *Provider) Stop() {
 	p.audit.Close()
 }
 
-// detectSlots probes the backend for concurrent slot count and updates the hub.
-func (p *Provider) detectSlots() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	slots, err := p.backend.ConcurrentSlots(ctx)
-	if err != nil || slots <= 1 {
+// trackSuccessfulInflight records that `n` concurrent requests succeeded,
+// updating the peak observed concurrency.
+func (p *Provider) trackSuccessfulInflight(n int) {
+	if !p.autoDetectSlots {
 		return
 	}
+	p.mu.Lock()
+	if n > p.peakInflight {
+		p.peakInflight = n
+		p.logf("✓ Peak concurrent slots observed: %d\n", n)
+	}
+	p.mu.Unlock()
+}
 
-	p.logf("✓ Detected %d concurrent slots\n", slots)
-	p.hubCfg.MaxConcurrent = slots
-	if err := p.hub.UpdateMaxConcurrent(slots); err != nil {
-		p.logf("⚠ Failed to update hub with detected slots: %v\n", err)
+// reduceSlots lowers MaxConcurrent when a connection error occurs under
+// concurrency, using the peak successful inflight as the new limit.
+func (p *Provider) reduceSlots(failedAt int) {
+	if !p.autoDetectSlots {
+		return
+	}
+	p.mu.Lock()
+	newMax := failedAt - 1
+	if p.peakInflight > 0 && p.peakInflight < newMax {
+		newMax = p.peakInflight
+	}
+	if newMax < 1 {
+		newMax = 1
+	}
+	if newMax >= p.hubCfg.MaxConcurrent {
+		p.mu.Unlock()
+		return
+	}
+	p.hubCfg.MaxConcurrent = newMax
+	p.mu.Unlock()
+
+	p.logf("⚠ Reduced max concurrent to %d (connection error at %d inflight)\n", newMax, failedAt)
+	if err := p.hub.UpdateMaxConcurrent(newMax); err != nil {
+		p.logf("⚠ Failed to update hub with reduced slots: %v\n", err)
 	}
 }
 
 // handleRequest processes incoming inference requests from the hub
 func (p *Provider) handleRequest(req hub.RequestMsg) {
-	// Lazy-detect concurrent slots on first request.
-	if p.autoDetectSlots {
-		p.slotsOnce.Do(func() {
-			go p.detectSlots()
-		})
-	}
-
 	// Reject requests while model server is down
 	p.mu.Lock()
 	up := p.modelServerUp
@@ -468,6 +486,7 @@ func (p *Provider) handleRequest(req hub.RequestMsg) {
 
 	p.mu.Lock()
 	p.queueDepth++
+	inflight := p.queueDepth
 	p.mu.Unlock()
 
 	defer func() {
@@ -487,9 +506,9 @@ func (p *Provider) handleRequest(req hub.RequestMsg) {
 	}
 
 	if req.Params.Stream {
-		p.handleStreamingRequest(req, backendReq, start)
+		p.handleStreamingRequest(req, backendReq, start, inflight)
 	} else {
-		p.handleNonStreamingRequest(req, backendReq, start)
+		p.handleNonStreamingRequest(req, backendReq, start, inflight)
 	}
 }
 
@@ -499,12 +518,13 @@ func sanitizeError(requestID string, err error) string {
 	return "internal backend error"
 }
 
-func (p *Provider) handleNonStreamingRequest(req hub.RequestMsg, backendReq *backend.Request, start time.Time) {
+func (p *Provider) handleNonStreamingRequest(req hub.RequestMsg, backendReq *backend.Request, start time.Time, inflight int) {
 	resp, err := p.backend.Complete(p.ctx, backendReq)
 	if err != nil {
 		if backend.IsConnectionError(err) {
 			p.hub.SendError(req.RequestID, "model server temporarily unavailable")
 			go p.onModelServerDown()
+			p.reduceSlots(inflight)
 			return
 		}
 		msg := sanitizeError(req.RequestID, err)
@@ -518,6 +538,8 @@ func (p *Provider) handleNonStreamingRequest(req hub.RequestMsg, backendReq *bac
 		})
 		return
 	}
+
+	p.trackSuccessfulInflight(inflight)
 
 	latency := time.Since(start).Milliseconds()
 
@@ -538,7 +560,7 @@ func (p *Provider) handleNonStreamingRequest(req hub.RequestMsg, backendReq *bac
 	})
 }
 
-func (p *Provider) handleStreamingRequest(req hub.RequestMsg, backendReq *backend.Request, start time.Time) {
+func (p *Provider) handleStreamingRequest(req hub.RequestMsg, backendReq *backend.Request, start time.Time, inflight int) {
 	tokenIndex := 0
 
 	// Don't send done=true in the per-token callback; we send the final
@@ -556,6 +578,7 @@ func (p *Provider) handleStreamingRequest(req hub.RequestMsg, backendReq *backen
 		if backend.IsConnectionError(err) {
 			p.hub.SendError(req.RequestID, "model server temporarily unavailable")
 			go p.onModelServerDown()
+			p.reduceSlots(inflight)
 			return
 		}
 		msg := sanitizeError(req.RequestID, err)
@@ -569,6 +592,8 @@ func (p *Provider) handleStreamingRequest(req hub.RequestMsg, backendReq *backen
 		})
 		return
 	}
+
+	p.trackSuccessfulInflight(inflight)
 
 	// Send single final message with usage
 	usage := &hub.Usage{
@@ -615,14 +640,15 @@ func (p *Provider) Status() ProviderStatus {
 	defer p.mu.Unlock()
 
 	return ProviderStatus{
-		ProviderID:   p.id,
-		Model:        p.model,
-		Status:       "online",
-		Uptime:       int64(time.Since(p.startTime).Seconds()),
-		RequestCount: p.requestCount,
-		QueueDepth:   p.queueDepth,
-		GPUUtil:      0,
-		Timestamp:    time.Now(),
+		ProviderID:    p.id,
+		Model:         p.model,
+		Status:        "online",
+		Uptime:        int64(time.Since(p.startTime).Seconds()),
+		RequestCount:  p.requestCount,
+		QueueDepth:    p.queueDepth,
+		MaxConcurrent: p.hubCfg.MaxConcurrent,
+		GPUUtil:       0,
+		Timestamp:     time.Now(),
 	}
 }
 
@@ -637,12 +663,13 @@ func (p *Provider) logf(format string, args ...any) {
 
 // ProviderStatus represents detailed provider status
 type ProviderStatus struct {
-	ProviderID   string    `json:"provider_id"`
-	Model        string    `json:"model"`
-	Status       string    `json:"status"`
-	Uptime       int64     `json:"uptime_seconds"`
-	RequestCount int64     `json:"request_count"`
-	QueueDepth   int       `json:"queue_depth"`
-	GPUUtil      float64   `json:"gpu_util"`
-	Timestamp    time.Time `json:"timestamp"`
+	ProviderID    string    `json:"provider_id"`
+	Model         string    `json:"model"`
+	Status        string    `json:"status"`
+	Uptime        int64     `json:"uptime_seconds"`
+	RequestCount  int64     `json:"request_count"`
+	QueueDepth    int       `json:"queue_depth"`
+	MaxConcurrent int       `json:"max_concurrent"`
+	GPUUtil       float64   `json:"gpu_util"`
+	Timestamp     time.Time `json:"timestamp"`
 }

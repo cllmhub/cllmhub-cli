@@ -461,53 +461,10 @@ func (o *Ollama) Health(ctx context.Context) error {
 		o.model, formatModelList(available), o.model)
 }
 
-// ConcurrentSlots queries Ollama's /api/ps endpoint to determine
-// how many parallel requests the running model can handle.
+// ConcurrentSlots discovers how many parallel requests the Ollama model can
+// handle by probing the backend with concurrent requests.
 func (o *Ollama) ConcurrentSlots(ctx context.Context) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", o.url+"/api/ps", nil)
-	if err != nil {
-		return 0, err
-	}
-
-	resp, err := o.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("ollama /api/ps not reachable: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("ollama /api/ps returned status %d", resp.StatusCode)
-	}
-
-	var psResp struct {
-		Models []struct {
-			Name    string `json:"name"`
-			Details struct {
-				ParallelCount int `json:"parallel_count"`
-			} `json:"details"`
-		} `json:"models"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&psResp); err != nil {
-		return 0, fmt.Errorf("failed to parse /api/ps response: %w", err)
-	}
-
-	// Find our model in the running list
-	for _, m := range psResp.Models {
-		name := m.Name
-		base := name
-		if idx := len(name) - len(":latest"); idx > 0 && name[idx:] == ":latest" {
-			base = name[:idx]
-		}
-		if name == o.model || base == o.model {
-			if m.Details.ParallelCount > 0 {
-				return m.Details.ParallelCount, nil
-			}
-			return 1, nil
-		}
-	}
-
-	// Model not currently running — can't determine slots
-	return 0, nil
+	return ProbeConcurrentSlots(ctx, o)
 }
 
 // ListModels returns all models available in Ollama.
