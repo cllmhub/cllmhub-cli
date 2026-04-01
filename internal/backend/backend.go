@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -40,6 +41,7 @@ type Backend interface {
 // Request represents an inference request to a backend
 type Request struct {
 	Prompt      string
+	Messages    json.RawMessage // original chat messages with multimodal content parts
 	MaxTokens   int
 	Temperature float64
 	TopP        float64
@@ -164,6 +166,39 @@ var (
 	timeNow   = time.Now
 	timeSince = time.Since
 )
+
+// openAIChatRequest is the OpenAI-compatible chat completions request format.
+// Used by vLLM, llama.cpp, LM Studio, and MLX when messages are present.
+type openAIChatRequest struct {
+	Model       string          `json:"model"`
+	Messages    json.RawMessage `json:"messages"`
+	MaxTokens   int             `json:"max_tokens,omitempty"`
+	Temperature float64         `json:"temperature,omitempty"`
+	TopP        float64         `json:"top_p,omitempty"`
+	Stream      bool            `json:"stream"`
+}
+
+// openAIChatResponse is the OpenAI-compatible chat completions response format.
+type openAIChatResponse struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Choices []struct {
+		Message struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"message"`
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+		Index        int    `json:"index"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
+}
 
 // New creates a backend based on the config type
 func New(cfg Config) (Backend, error) {

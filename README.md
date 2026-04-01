@@ -6,6 +6,7 @@ The command-line interface for [cLLMHub](https://github.com/cllmhub/cllmhub) —
 
 - **Publish** models from any local inference backend to the hub so anyone with an API key can use them
 - **Connect** external backends (Ollama, vLLM, LM Studio, llama.cpp, MLX) to the hub
+- **Chat completions** with multimodal support (text + images) across all backends
 - **Authenticate** via OAuth device flow, manage credentials
 
 ## Quick start
@@ -107,12 +108,16 @@ Flags:
   --max-concurrent, -c   Maximum concurrent requests (0 = auto-detect, default: 0)
 ```
 
-#### `cllmhub unpublish <model...>`
+#### `cllmhub unpublish [model...]`
 
-Stop serving one or more published models.
+Stop serving one or more published models. Run without arguments to interactively select from currently published models.
 
 ```bash
+# Unpublish by name
 cllmhub unpublish llama3-70b
+
+# Interactive selection
+cllmhub unpublish
 ```
 
 ### Daemon
@@ -167,11 +172,13 @@ Update the CLI to the latest version. The CLI also checks for updates automatica
 
 | Backend    | Default endpoint       | Notes |
 |------------|------------------------|-------|
-| `ollama`   | http://localhost:11434 | Default backend, most common |
-| `vllm`     | http://localhost:8000  | High throughput, GPU optimized |
-| `lmstudio` | http://localhost:1234  | Desktop app for running local LLMs |
-| `llamacpp` | http://localhost:8080  | CPU-friendly, quantized models |
-| `mlx`      | http://localhost:8080  | Apple Silicon optimized via mlx-lm |
+| `ollama`   | http://localhost:11434 | Default backend, most common. Native chat API with image support |
+| `vllm`     | http://localhost:8000  | High throughput, GPU optimized. OpenAI-compatible chat API |
+| `lmstudio` | http://localhost:1234  | Desktop app for running local LLMs. OpenAI-compatible chat API |
+| `llamacpp` | http://localhost:8080  | CPU-friendly, quantized models. OpenAI-compatible chat API |
+| `mlx`      | http://localhost:8080  | Apple Silicon optimized via mlx-lm. OpenAI-compatible chat API |
+
+All backends support both text completions and chat completions (OpenAI-compatible `/v1/chat/completions` format). Multimodal messages with image content parts are supported — Ollama automatically converts OpenAI-format image parts to its native base64 image format.
 
 ## License
 

@@ -81,6 +81,10 @@ type openAIResponse struct {
 
 // Complete sends a prompt and returns the full completion
 func (v *VLLM) Complete(ctx context.Context, req *Request) (*Response, error) {
+	if len(req.Messages) > 0 {
+		return v.completeChat(ctx, req)
+	}
+
 	vllmReq := openAIRequest{
 		Model:       v.model,
 		Prompt:      req.Prompt,
@@ -132,8 +136,64 @@ func (v *VLLM) Complete(ctx context.Context, req *Request) (*Response, error) {
 	}, nil
 }
 
+func (v *VLLM) completeChat(ctx context.Context, req *Request) (*Response, error) {
+	chatReq := openAIChatRequest{
+		Model:       v.model,
+		Messages:    req.Messages,
+		MaxTokens:   req.MaxTokens,
+		Temperature: req.Temperature,
+		TopP:        req.TopP,
+		Stream:      false,
+	}
+
+	body, err := json.Marshal(chatReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", v.url+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if v.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+v.apiKey)
+	}
+
+	resp, err := v.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("vllm error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var chatResp openAIChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	text := ""
+	if len(chatResp.Choices) > 0 {
+		text = chatResp.Choices[0].Message.Content
+	}
+
+	return &Response{
+		Text:             text,
+		PromptTokens:     chatResp.Usage.PromptTokens,
+		CompletionTokens: chatResp.Usage.CompletionTokens,
+	}, nil
+}
+
 // Stream sends a prompt and streams tokens via the callback
 func (v *VLLM) Stream(ctx context.Context, req *Request, callback func(token string, done bool) error) (*Response, error) {
+	if len(req.Messages) > 0 {
+		return v.streamChat(ctx, req, callback)
+	}
+
 	vllmReq := openAIRequest{
 		Model:       v.model,
 		Prompt:      req.Prompt,
@@ -203,6 +263,91 @@ func (v *VLLM) Stream(ctx context.Context, req *Request, callback func(token str
 			if done {
 				promptTokens = vllmResp.Usage.PromptTokens
 				completionTokens = vllmResp.Usage.CompletionTokens
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading stream: %w", err)
+	}
+
+	return &Response{
+		Text:             fullText,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+	}, nil
+}
+
+func (v *VLLM) streamChat(ctx context.Context, req *Request, callback func(token string, done bool) error) (*Response, error) {
+	chatReq := openAIChatRequest{
+		Model:       v.model,
+		Messages:    req.Messages,
+		MaxTokens:   req.MaxTokens,
+		Temperature: req.Temperature,
+		TopP:        req.TopP,
+		Stream:      true,
+	}
+
+	body, err := json.Marshal(chatReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", v.url+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if v.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+v.apiKey)
+	}
+
+	resp, err := v.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("vllm error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var fullText string
+	var promptTokens, completionTokens int
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			if err := callback("", true); err != nil {
+				return nil, err
+			}
+			break
+		}
+
+		var chatResp openAIChatResponse
+		if err := json.Unmarshal([]byte(data), &chatResp); err != nil {
+			continue
+		}
+
+		if len(chatResp.Choices) > 0 {
+			token := chatResp.Choices[0].Delta.Content
+			fullText += token
+
+			done := chatResp.Choices[0].FinishReason != ""
+			if err := callback(token, done); err != nil {
+				return nil, err
+			}
+
+			if done {
+				promptTokens = chatResp.Usage.PromptTokens
+				completionTokens = chatResp.Usage.CompletionTokens
 			}
 		}
 	}

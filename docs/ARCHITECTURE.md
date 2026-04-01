@@ -70,10 +70,16 @@ Supported backends:
 | Ollama     | `localhost:11434`        | Ollama native API   |
 | vLLM       | `localhost:8000`         | OpenAI-compatible   |
 | LM Studio  | `localhost:1234`         | OpenAI-compatible   |
-| Llama.cpp  | `localhost:8080`         | Llama.cpp HTTP      |
+| Llama.cpp  | `localhost:8080`         | OpenAI-compatible   |
 | MLX        | `localhost:8080`         | OpenAI-compatible   |
 
 A factory function `New()` instantiates the correct backend from a config type string.
+
+#### Chat Completions & Multimodal Support
+
+All backends support both text completions (`Prompt` field) and chat completions (`Messages` field). When `Messages` is present, backends route to the `/v1/chat/completions` endpoint (OpenAI-compatible format). Shared request/response types (`openAIChatRequest`, `openAIChatResponse`) are defined in `backend.go` and reused by vLLM, llama.cpp, LM Studio, and MLX.
+
+**Ollama** uses its native `/api/chat` endpoint instead. A `convertToOllamaMessages()` function transforms OpenAI-format messages (where content may be an array of parts with text and `image_url` types) into Ollama's format (content as string, images as a separate base64 array).
 
 ### Daemon (`internal/daemon/`)
 
@@ -107,10 +113,11 @@ Centralized management of all cLLMHub file system paths:
 Manages the full lifecycle of a published model on the hub:
 
 1. **Registration** — Connects via WebSocket, sends provider metadata
-2. **Request handling** — Concurrent processing with configurable max concurrency and rate limiting (requests/minute)
-3. **Health monitoring** — Periodic checks on the local model server (5 attempts, 60s intervals) with alert system for down/recovered events
-4. **Reconnection** — Auto-reconnect loop (up to 5 attempts, 60s intervals) on connection loss
-5. **Token refresh** — Includes fresh tokens in heartbeats to keep the session alive
+2. **Request handling** — Concurrent processing with configurable max concurrency and rate limiting (requests/minute). Forwards chat messages (including multimodal content) to the backend.
+3. **Health monitoring** — Proactive health check loop (every 30 seconds) detects backend failures even when no requests are flowing. On failure, the model is unpublished immediately and health checks continue (2 attempts, 60s apart). On recovery, the model is automatically republished.
+4. **Reconnection** — Auto-reconnect loop (up to 5 attempts, 60s intervals) on connection loss. Skipped when the backend is down (recovery is handled by the health monitor).
+5. **Graceful shutdown** — On `Stop()`, sends an `unregister` message to the hub before closing the WebSocket with a proper close handshake, ensuring the model is removed immediately rather than waiting for a timeout.
+6. **Token refresh** — Includes fresh tokens in heartbeats to keep the session alive
 
 ### Hub Gateway Client (`internal/hub/`)
 
@@ -120,12 +127,17 @@ WebSocket-based communication with the cLLMHub gateway. Message types:
 |-----------------|---------------|----------------------------------|
 | `register`      | Client → Hub  | Provider registration            |
 | `registered`    | Hub → Client  | Registration confirmation        |
+| `unregister`    | Client → Hub  | Provider deregistration (graceful shutdown) |
 | `heartbeat`     | Client → Hub  | Keep-alive with queue/GPU stats  |
-| `request`       | Hub → Client  | Incoming inference request       |
+| `request`       | Hub → Client  | Incoming inference request (includes optional `messages` field for chat completions) |
 | `response`      | Client → Hub  | Non-streaming completion         |
 | `stream_token`  | Client → Hub  | Streaming token chunk            |
 | `error`         | Client → Hub  | Error response                   |
 | `ping`/`pong`   | Bidirectional | Connection health                |
+
+The `HubClient` provides two shutdown methods:
+- `Disconnect()` — Sends a WebSocket close frame with normal closure, allowing the hub to clean up immediately. Used during graceful shutdown.
+- `Close()` — Closes the connection without a close handshake. Used during error recovery (e.g., backend down).
 
 ### Audit Logging (`internal/audit/`)
 
@@ -145,7 +157,7 @@ Non-blocking background check against the GitHub releases API with 24-hour cachi
 cllmhub
   ├── login        OAuth device flow → discover local models → optionally publish
   ├── publish      Discover backends → select model → publish via daemon bridge
-  ├── unpublish    Tell daemon to stop serving models
+  ├── unpublish    Tell daemon to stop serving models (interactive selection if no args)
   ├── start        Spawn daemon process (bridge manager + HTTP API)
   ├── stop         Send shutdown signal to daemon
   ├── status       Query daemon HTTP API for status
@@ -188,5 +200,7 @@ cllmhub
 - **Daemon architecture**: Background process with Unix socket IPC, enabling multi-model publishing
 - **Background token management**: Automatic refresh with dead-channel signaling for session invalidation
 - **Context-based cancellation**: `context.Context` propagated throughout for clean shutdown on SIGINT/SIGTERM
+- **Proactive health monitoring**: Background health check loop detects backend failures independently of request flow, with automatic unpublish/republish
+- **Graceful lifecycle management**: Unregister message + WebSocket close handshake on shutdown; raw close on error recovery
 - **Resilient reconnection**: Exponential backoff with health checks before re-registering
 - **Concurrency control**: Semaphore-based max concurrency, mutex-protected shared state, channel-based synchronization

@@ -49,6 +49,7 @@ func pinnedTLSConfig() *tls.Config {
 // WebSocket message types (must match gateway/internal/provider/messages.go)
 const (
 	MsgTypeRegister    = "register"
+	MsgTypeUnregister  = "unregister"
 	MsgTypeHeartbeat   = "heartbeat"
 	MsgTypeResponse    = "response"
 	MsgTypeStreamToken = "stream_token"
@@ -65,11 +66,12 @@ type Envelope struct {
 
 // RequestMsg is a forwarded inference request from the gateway.
 type RequestMsg struct {
-	Type      string          `json:"type"`
-	RequestID string          `json:"request_id"`
-	Model     string          `json:"model"`
-	Prompt    string          `json:"prompt"`
-	Params    InferenceParams `json:"params"`
+	Type      string              `json:"type"`
+	RequestID string              `json:"request_id"`
+	Model     string              `json:"model"`
+	Prompt    string              `json:"prompt"`
+	Messages  json.RawMessage     `json:"messages,omitempty"`
+	Params    InferenceParams     `json:"params"`
 }
 
 // InferenceParams mirrors the gateway params.
@@ -169,6 +171,7 @@ func Connect(cfg ConnectConfig) (*HubClient, error) {
 		"token":          cfg.Token,
 	}
 
+	log.Printf("[hub] Sending register for provider=%s model=%s backend=%s", cfg.ProviderID, cfg.Model, cfg.Backend)
 	if err := c.writeJSON(reg); err != nil {
 		ws.Close()
 		return nil, fmt.Errorf("failed to send register: %w", err)
@@ -200,6 +203,8 @@ func Connect(cfg ConnectConfig) (*HubClient, error) {
 		ws.Close()
 		return nil, fmt.Errorf("unexpected response type: %s", env.Type)
 	}
+
+	log.Printf("[hub] Registered provider=%s model=%s", cfg.ProviderID, cfg.Model)
 
 	// Limit inbound WebSocket messages to 16MB to prevent memory exhaustion.
 	ws.SetReadLimit(16 * 1024 * 1024)
@@ -381,7 +386,35 @@ func (c *HubClient) currentToken() string {
 	return c.token
 }
 
-// Close closes the WebSocket connection.
+// SendUnpublish sends an unregister message over the WebSocket so the hub
+// removes the provider immediately, before the connection is closed.
+func (c *HubClient) SendUnpublish() error {
+	log.Printf("[hub] Sending unregister for provider=%s model=%s", c.providerID, c.model)
+	msg := map[string]interface{}{
+		"type":        MsgTypeUnregister,
+		"provider_id": c.providerID,
+		"model":       c.model,
+	}
+	return c.writeJSON(msg)
+}
+
+// Disconnect sends a WebSocket close frame so the hub can immediately
+// remove the provider, then closes the underlying connection.
+func (c *HubClient) Disconnect() {
+	if c.ws == nil {
+		return
+	}
+	log.Printf("[hub] Disconnecting provider=%s model=%s", c.providerID, c.model)
+	c.wsMu.Lock()
+	c.ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	c.ws.WriteMessage(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "provider disconnecting"))
+	c.wsMu.Unlock()
+	c.ws.Close()
+	log.Printf("[hub] Disconnected provider=%s model=%s", c.providerID, c.model)
+}
+
+// Close closes the WebSocket connection without a close handshake.
 func (c *HubClient) Close() {
 	if c.ws != nil {
 		c.ws.Close()

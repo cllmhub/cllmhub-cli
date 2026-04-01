@@ -156,6 +156,10 @@ func (p *Provider) Start(ctx context.Context) error {
 		}()
 	}
 
+	// Start proactive health check loop — detects backend going down
+	// even when no requests are flowing.
+	go p.healthCheckLoop()
+
 	// Send initial heartbeat so the provider is immediately visible.
 	p.sendHeartbeat()
 
@@ -167,6 +171,17 @@ func (p *Provider) Start(ctx context.Context) error {
 		// If the parent context was cancelled, this is a deliberate shutdown.
 		if p.ctx.Err() != nil {
 			return err
+		}
+
+		// If the model server is down, onModelServerDown is handling
+		// recovery — don't reconnect here or we'd re-publish a dead model.
+		p.mu.Lock()
+		up := p.modelServerUp
+		p.mu.Unlock()
+		if !up {
+			// Wait for recovery (onModelServerDown) or shutdown.
+			<-p.ctx.Done()
+			return p.ctx.Err()
 		}
 
 		// Connection dropped unexpectedly — attempt to reconnect.
@@ -183,9 +198,10 @@ func (p *Provider) Start(ctx context.Context) error {
 }
 
 const (
-	maxReconnectAttempts    = 5
-	maxHealthCheckAttempts  = 2
-	healthCheckInterval     = 60 * time.Second
+	maxReconnectAttempts       = 5
+	maxHealthCheckAttempts     = 2
+	healthCheckInterval        = 60 * time.Second
+	proactiveHealthInterval    = 30 * time.Second
 )
 
 // reconnectLoop tries to re-establish the hub WebSocket.
@@ -233,6 +249,36 @@ func (p *Provider) reconnectLoop() bool {
 	return false
 }
 
+// healthCheckLoop periodically pings the backend to detect it going down
+// even when no inference requests are flowing.
+func (p *Provider) healthCheckLoop() {
+	ticker := time.NewTicker(proactiveHealthInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			p.mu.Lock()
+			up := p.modelServerUp
+			p.mu.Unlock()
+			if !up {
+				continue // already in recovery, skip
+			}
+
+			ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+			err := p.backend.Health(ctx)
+			cancel()
+
+			if err != nil {
+				p.logf("⚠ Proactive health check failed: %v\n", err)
+				go p.onModelServerDown()
+			}
+		}
+	}
+}
+
 // onModelServerDown is triggered when a backend request fails with a connection error.
 // It unpublishes the model immediately, runs health checks, and either republishes or stays unpublished.
 func (p *Provider) onModelServerDown() {
@@ -246,18 +292,19 @@ func (p *Provider) onModelServerDown() {
 
 	p.logf("\n⚠ Model server unreachable: %s\n", p.backend.URL())
 
-	// Alert: model_server_unreachable
-	p.hub.SendAlert(hub.Alert{
+	// Unpublish: close the hub WebSocket so the model is no longer available.
+	// Close first so the model is removed from the hub immediately.
+	p.logf("⚠ Unpublishing model %q\n", p.model)
+	p.hub.Close()
+
+	// Alert: model_server_unreachable (async — don't delay unpublish)
+	go p.hub.SendAlert(hub.Alert{
 		ProviderID: p.id,
 		Model:      p.model,
 		AlertType:  "model_server_unreachable",
 		Message:    fmt.Sprintf("Model server unreachable at %s, unpublishing model", p.backend.URL()),
 		Timestamp:  time.Now(),
 	})
-
-	// Unpublish: close the hub WebSocket so the model is no longer available.
-	p.logf("⚠ Unpublishing model %q\n", p.model)
-	p.hub.Close()
 
 	p.logf("  Will check again — %d attempts, 60 seconds apart...\n", maxHealthCheckAttempts)
 
@@ -343,11 +390,23 @@ func (p *Provider) CloseConnection() {
 
 // Stop gracefully shuts down the provider
 func (p *Provider) Stop() {
+	if p.hub != nil {
+		// Send unregister while the WebSocket is still open.
+		p.logf("⚠ Unregistering model %q (provider %s)\n", p.model, p.id)
+		if err := p.hub.SendUnpublish(); err != nil {
+			p.logf("✗ Failed to send unregister: %v\n", err)
+		} else {
+			p.logf("✓ Unregister message sent for model %q\n", p.model)
+		}
+	}
+	// Cancel the context so ReadLoop and Start() know this is a
+	// deliberate shutdown and don't attempt to reconnect.
 	if p.cancel != nil {
 		p.cancel()
 	}
 	if p.hub != nil {
-		p.hub.Close()
+		p.hub.Disconnect()
+		p.logf("✓ Disconnected from hub\n")
 	}
 	if p.tokenMgr != nil {
 		p.tokenMgr.Stop()
@@ -416,6 +475,7 @@ func (p *Provider) handleRequest(req hub.RequestMsg) {
 
 	backendReq := &backend.Request{
 		Prompt:      req.Prompt,
+		Messages:    req.Messages,
 		MaxTokens:   req.Params.MaxTokens,
 		Temperature: req.Params.Temperature,
 		TopP:        req.Params.TopP,
