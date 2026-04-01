@@ -15,7 +15,6 @@ var (
 	publishBackendURL    string
 	publishBackendAPIKey string
 	publishDescription   string
-	publishMaxConcurrent int
 )
 
 var publishCmd = &cobra.Command{
@@ -50,7 +49,6 @@ func init() {
 	publishCmd.Flags().StringVar(&publishBackendURL, "backend-url", "", "Backend endpoint URL (overrides default for the backend type)")
 	publishCmd.Flags().StringVar(&publishBackendAPIKey, "api-key", "", "API key for the backend server")
 	publishCmd.Flags().StringVarP(&publishDescription, "description", "d", "", "Model description")
-	publishCmd.Flags().IntVarP(&publishMaxConcurrent, "max-concurrent", "c", 0, "Maximum concurrent requests (0 = auto-detect)")
 }
 
 func runPublish(cmd *cobra.Command, args []string) error {
@@ -59,7 +57,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		if publishModel == "" {
 			return fmt.Errorf("model name is required: use -m <model>")
 		}
-		return publishViaDaemon(publishModel, publishBackend, publishBackendURL, publishBackendAPIKey, publishDescription, publishMaxConcurrent)
+		return publishViaDaemon(publishModel, publishBackend, publishBackendURL, publishBackendAPIKey, publishDescription)
 	}
 
 	// Interactive TUI selection from detected backends
@@ -79,7 +77,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	}
 	selected := available[idx]
 
-	return publishViaDaemon(selected.name, selected.source, publishBackendURL, publishBackendAPIKey, publishDescription, publishMaxConcurrent)
+	return publishViaDaemon(selected.name, selected.source, publishBackendURL, publishBackendAPIKey, publishDescription)
 }
 
 // publishableModel represents a model that can be published, from any source.
@@ -121,7 +119,7 @@ func ensureDaemon() error {
 }
 
 // publishViaDaemon publishes a model served by an external backend through the daemon.
-func publishViaDaemon(model, backendType, backendURL, apiKey, description string, maxConcurrent int) error {
+func publishViaDaemon(model, backendType, backendURL, apiKey, description string) error {
 	if !regexp.MustCompile(`^[a-zA-Z0-9._:/-]+$`).MatchString(model) {
 		return fmt.Errorf("invalid model name %q: only alphanumerics, dots, underscores, colons, slashes, and hyphens are allowed", model)
 	}
@@ -143,7 +141,6 @@ func publishViaDaemon(model, backendType, backendURL, apiKey, description string
 		BackendType:   backendType,
 		BackendURL:    backendURL,
 		BackendAPIKey: apiKey,
-		MaxConcurrent: maxConcurrent,
 		Description:   description,
 	}
 

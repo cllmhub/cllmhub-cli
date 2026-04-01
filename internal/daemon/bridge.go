@@ -65,7 +65,6 @@ func (bm *BridgeManager) StartBridge(spec PublishModelSpec, hubURL, token string
 	cfg := provider.Config{
 		Model:         spec.Name,
 		Description:   spec.Description,
-		MaxConcurrent: spec.MaxConcurrent,
 		Token:         token,
 		Backend: backend.Config{
 			Type:   spec.BackendType,

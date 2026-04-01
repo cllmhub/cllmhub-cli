@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/cllmhub/cllmhub-cli/internal/audit"
 	"github.com/cllmhub/cllmhub-cli/internal/auth"
 	"github.com/cllmhub/cllmhub-cli/internal/backend"
 	"github.com/cllmhub/cllmhub-cli/internal/hub"
+	"github.com/google/uuid"
 	"golang.org/x/time/rate"
 )
 
@@ -25,15 +25,14 @@ type Provider struct {
 	hub         *hub.HubClient
 	hubCfg      hub.ConnectConfig
 
-	mu             sync.Mutex
-	requestCount   int64
-	queueDepth     int
-	peakInflight   int  // highest observed successful concurrency
-	startTime      time.Time
-	modelServerUp  bool
+	mu            sync.Mutex
+	requestCount  int64
+	queueDepth    int
+	peakInflight  int // highest observed successful concurrency
+	startTime     time.Time
+	modelServerUp bool
 
-	autoDetectSlots bool // true when MaxConcurrent was 0 (auto-detect)
-	watch           bool // proactively watch backend health
+	watch bool // proactively watch backend health
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -46,17 +45,16 @@ type Provider struct {
 
 // Config holds provider configuration
 type Config struct {
-	Model         string
-	Description   string
-	MaxConcurrent int
-	Token         string
-	Backend       backend.Config
-	HubURL        string
-	LogFile       string
-	RateLimit     int // requests per minute, 0 = unlimited
-	TokenManager  *auth.TokenManager
-	Logger        *slog.Logger // optional; if nil, prints to stdout
-	Watch         bool         // proactively watch backend health
+	Model        string
+	Description  string
+	Token        string
+	Backend      backend.Config
+	HubURL       string
+	LogFile      string
+	RateLimit    int // requests per minute, 0 = unlimited
+	TokenManager *auth.TokenManager
+	Logger       *slog.Logger // optional; if nil, prints to stdout
+	Watch        bool         // proactively watch backend health
 }
 
 // New creates a new provider instance
@@ -76,21 +74,15 @@ func New(cfg Config) (*Provider, error) {
 
 	providerID := uuid.New().String()[:8]
 
-	// MaxConcurrent 0 means auto-detect from live traffic; register with 5
-	// and reduce if the backend cannot handle the concurrency.
-	maxConcurrent := cfg.MaxConcurrent
-	registerConcurrent := maxConcurrent
-	if registerConcurrent < 1 {
-		registerConcurrent = 5
-	}
-
+	// Register with 10 concurrent slots initially; the provider will
+	// adjust downward based on live traffic if the backend can't handle it.
 	hubCfg := hub.ConnectConfig{
 		HubURL:        cfg.HubURL,
 		ProviderID:    providerID,
 		Model:         cfg.Model,
 		Backend:       cfg.Backend.Type,
 		Description:   cfg.Description,
-		MaxConcurrent: registerConcurrent,
+		MaxConcurrent: 10,
 		Token:         cfg.Token,
 	}
 
@@ -101,18 +93,17 @@ func New(cfg Config) (*Provider, error) {
 	}
 
 	p := &Provider{
-		id:              providerID,
-		model:           cfg.Model,
-		description:     cfg.Description,
-		backend:         b,
-		hub:             hubClient,
-		hubCfg:          hubCfg,
-		startTime:       time.Now(),
-		modelServerUp:   true,
-		autoDetectSlots: maxConcurrent < 1,
-		watch:           cfg.Watch,
-		tokenMgr:        cfg.TokenManager,
-		logger:          cfg.Logger,
+		id:            providerID,
+		model:         cfg.Model,
+		description:   cfg.Description,
+		backend:       b,
+		hub:           hubClient,
+		hubCfg:        hubCfg,
+		startTime:     time.Now(),
+		modelServerUp: true,
+		watch:         cfg.Watch,
+		tokenMgr:      cfg.TokenManager,
+		logger:        cfg.Logger,
 	}
 
 	// Give the hub client access to fresh tokens for HTTP requests (alerts).
@@ -204,10 +195,10 @@ func (p *Provider) Start(ctx context.Context) error {
 }
 
 const (
-	maxReconnectAttempts       = 5
-	maxHealthCheckAttempts     = 2
-	healthCheckInterval        = 60 * time.Second
-	proactiveHealthInterval    = 30 * time.Second
+	maxReconnectAttempts    = 5
+	maxHealthCheckAttempts  = 2
+	healthCheckInterval     = 60 * time.Second
+	proactiveHealthInterval = 30 * time.Second
 )
 
 // reconnectLoop tries to re-establish the hub WebSocket.
@@ -423,9 +414,6 @@ func (p *Provider) Stop() {
 // trackSuccessfulInflight records that `n` concurrent requests succeeded,
 // updating the peak observed concurrency.
 func (p *Provider) trackSuccessfulInflight(n int) {
-	if !p.autoDetectSlots {
-		return
-	}
 	p.mu.Lock()
 	if n > p.peakInflight {
 		p.peakInflight = n
@@ -437,9 +425,6 @@ func (p *Provider) trackSuccessfulInflight(n int) {
 // reduceSlots lowers MaxConcurrent when a connection error occurs under
 // concurrency, using the peak successful inflight as the new limit.
 func (p *Provider) reduceSlots(failedAt int) {
-	if !p.autoDetectSlots {
-		return
-	}
 	p.mu.Lock()
 	newMax := failedAt - 1
 	if p.peakInflight > 0 && p.peakInflight < newMax {
