@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -143,26 +142,10 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			labels[i] = fmt.Sprintf("%s (%s)", e.name, e.backend)
 		}
 		fmt.Println()
-	selectModel:
-		for {
-			idx := tui.Select("Select a model to publish (or Esc to skip):", labels)
-			if idx < 0 {
-				break
-			}
+		idx := tui.Select("Select a model to publish (or Esc to skip):", labels)
+		if idx >= 0 {
 			selected := entries[idx]
-			maxConc := tui.InputInt(fmt.Sprintf("Max concurrent requests for %s:", selected.name), 1)
-			if maxConc < 0 {
-				continue selectModel
-			}
-			if maxConc < 1 {
-				maxConc = 1
-			}
-			fmt.Printf("Publishing %s...\n\n", selected.name)
-			execCmd := exec.Command(os.Args[0], "publish", "-m", selected.name, "-b", selected.backend, "-c", fmt.Sprintf("%d", maxConc))
-			execCmd.Stdin = os.Stdin
-			execCmd.Stdout = os.Stdout
-			execCmd.Stderr = os.Stderr
-			return execCmd.Run()
+			return publishViaDaemon(selected.name, selected.backend, "", "", "", 0)
 		}
 	} else {
 		fmt.Println()
