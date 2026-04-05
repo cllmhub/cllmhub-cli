@@ -117,6 +117,10 @@ func (d *Daemon) Run() error {
 
 	d.startTime = time.Now()
 	d.bridges = NewBridgeManager(logger, d.watch)
+	d.bridges.SetOnEmpty(func() {
+		d.logger.Info("no providers published, stopping daemon")
+		d.cancel()
+	})
 
 	// Generate and write auth token
 	if err := d.writeAuthToken(); err != nil {
@@ -339,6 +343,7 @@ func (d *Daemon) handleReauth(w http.ResponseWriter, r *http.Request) {
 	if len(published) > 0 {
 		d.logger.Info("reauth: stopping all bridges for credential refresh", "models", published)
 		d.bridges.StopAll()
+		d.bridges.ResumeAutoStop()
 	}
 
 	d.logger.Info("reauth: credentials refreshed, ready for new publishes")

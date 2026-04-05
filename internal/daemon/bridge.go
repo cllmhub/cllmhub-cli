@@ -23,10 +23,12 @@ type Bridge struct {
 
 // BridgeManager manages all active bridges.
 type BridgeManager struct {
-	mu      sync.RWMutex
-	bridges map[string]*Bridge
-	logger  *slog.Logger
-	watch   bool
+	mu            sync.RWMutex
+	bridges       map[string]*Bridge
+	logger        *slog.Logger
+	watch         bool
+	onEmpty       func() // called when last bridge is removed (unless suppressed)
+	suppressEmpty bool   // true during StopAll to prevent auto-stop
 }
 
 // NewBridgeManager creates a new bridge manager.
@@ -107,7 +109,12 @@ func (bm *BridgeManager) StartBridge(spec PublishModelSpec, hubURL, token string
 		}
 		bm.mu.Lock()
 		delete(bm.bridges, spec.Name)
+		empty := len(bm.bridges) == 0 && bm.onEmpty != nil && !bm.suppressEmpty
+		cb := bm.onEmpty
 		bm.mu.Unlock()
+		if empty {
+			cb()
+		}
 	}()
 
 	bm.logger.Info("bridge started", "model", spec.Name, "backend", spec.BackendType)
@@ -134,21 +141,28 @@ func (bm *BridgeManager) StopBridge(model string) error {
 		bm.logger.Warn("bridge stop timed out, forcing cleanup", "model", model)
 		bm.mu.Lock()
 		delete(bm.bridges, model)
+		empty := len(bm.bridges) == 0 && bm.onEmpty != nil && !bm.suppressEmpty
+		cb := bm.onEmpty
 		bm.mu.Unlock()
+		if empty {
+			cb()
+		}
 	}
 
 	bm.logger.Info("bridge stopped", "model", model)
 	return nil
 }
 
-// StopAll stops all bridges.
+// StopAll stops all bridges. It suppresses the onEmpty callback since callers
+// (shutdown, reauth) handle the empty state themselves.
 func (bm *BridgeManager) StopAll() {
-	bm.mu.RLock()
+	bm.mu.Lock()
+	bm.suppressEmpty = true
 	bridges := make([]*Bridge, 0, len(bm.bridges))
 	for _, b := range bm.bridges {
 		bridges = append(bridges, b)
 	}
-	bm.mu.RUnlock()
+	bm.mu.Unlock()
 
 	for _, b := range bridges {
 		b.provider.Stop()
@@ -160,6 +174,20 @@ func (bm *BridgeManager) StopAll() {
 			bm.logger.Warn("bridge stop timed out during shutdown", "model", b.model)
 		}
 	}
+}
+
+// SetOnEmpty registers a callback invoked when the last bridge is removed.
+func (bm *BridgeManager) SetOnEmpty(fn func()) {
+	bm.mu.Lock()
+	bm.onEmpty = fn
+	bm.mu.Unlock()
+}
+
+// ResumeAutoStop re-enables the onEmpty callback after a StopAll.
+func (bm *BridgeManager) ResumeAutoStop() {
+	bm.mu.Lock()
+	bm.suppressEmpty = false
+	bm.mu.Unlock()
 }
 
 // ProviderID returns the hub provider ID for a published model.
