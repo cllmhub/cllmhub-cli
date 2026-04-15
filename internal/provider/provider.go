@@ -33,6 +33,8 @@ type Provider struct {
 	hub         *hub.HubClient
 	hubCfg      hub.ConnectConfig
 
+	identity *backend.ModelIdentity // provenance metadata collected at publish time
+
 	mu            sync.Mutex
 	requestCount  int64
 	queueDepth    int
@@ -89,6 +91,14 @@ func New(cfg Config) (*Provider, error) {
 		return nil, fmt.Errorf("backend health check failed: %w", err)
 	}
 
+	// Collect model provenance metadata from the backend.
+	infoCtx, infoCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	identity, _ := b.ModelInfo(infoCtx)
+	infoCancel()
+	if identity == nil {
+		identity = &backend.ModelIdentity{Engine: cfg.Backend.Type}
+	}
+
 	providerID := uuid.New().String()[:8]
 
 	// Determine slot ceiling: user hint or default.
@@ -104,6 +114,18 @@ func New(cfg Config) (*Provider, error) {
 		initialSlots = cfg.MaxConcurrent
 	}
 
+	hubIdentity := &hub.ModelIdentity{
+		Family:        identity.Family,
+		ParameterSize: identity.ParameterSize,
+		Quantization:  identity.Quantization,
+		Format:        identity.Format,
+		Source:        identity.Source,
+		License:       identity.License,
+		Digest:        identity.Digest,
+		Engine:        identity.Engine,
+		EngineVersion: identity.EngineVersion,
+	}
+
 	hubCfg := hub.ConnectConfig{
 		HubURL:        cfg.HubURL,
 		ProviderID:    providerID,
@@ -112,6 +134,7 @@ func New(cfg Config) (*Provider, error) {
 		Description:   cfg.Description,
 		MaxConcurrent: initialSlots,
 		Token:         cfg.Token,
+		Identity:      hubIdentity,
 	}
 
 	// Connect to hub via WebSocket
@@ -124,6 +147,7 @@ func New(cfg Config) (*Provider, error) {
 		id:            providerID,
 		model:         cfg.Model,
 		description:   cfg.Description,
+		identity:      identity,
 		backend:       b,
 		hub:           hubClient,
 		hubCfg:        hubCfg,
@@ -169,6 +193,9 @@ func (p *Provider) Start(ctx context.Context) error {
 
 	p.logf("✓ Connected to cLLMHub network\n")
 	p.logf("✓ Model %q published as %s (slots: %d, ceiling: %d)\n", p.model, p.id, p.maxSlots, p.slotCeiling)
+	if p.identity != nil && p.identity.Digest != "" {
+		p.logf("✓ Model identity: digest=%s engine=%s/%s\n", p.identity.Digest[:16]+"…", p.identity.Engine, p.identity.EngineVersion)
+	}
 	p.logf("✓ Listening for requests via WebSocket\n")
 
 	// Watch for token manager death and shut down the provider.
@@ -704,7 +731,12 @@ func (p *Provider) sendHeartbeat() {
 	if p.tokenMgr != nil {
 		token = p.tokenMgr.AccessToken()
 	}
-	p.hub.SendHeartbeatWithToken(queueDepth, 0, token)
+
+	var digest string
+	if p.identity != nil {
+		digest = p.identity.Digest
+	}
+	p.hub.SendHeartbeatWithToken(queueDepth, 0, token, digest)
 }
 
 // Status returns the current provider status

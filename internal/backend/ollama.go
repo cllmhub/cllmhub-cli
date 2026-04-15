@@ -494,6 +494,108 @@ func (o *Ollama) ListModels(ctx context.Context) ([]string, error) {
 	return models, nil
 }
 
+// ModelInfo returns provenance and integrity metadata from Ollama.
+// Uses /api/show for model details, /api/tags for the digest, and /api/version
+// for the engine version. All calls are best-effort; missing data is left empty.
+func (o *Ollama) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
+	identity := &ModelIdentity{Engine: "ollama", Source: "ollama:" + o.model}
+
+	// Engine version
+	if ver, err := o.ollamaVersion(ctx); err == nil {
+		identity.EngineVersion = ver
+	}
+
+	// Model details from /api/show
+	showBody, _ := json.Marshal(map[string]string{"name": o.model})
+	showReq, err := http.NewRequestWithContext(ctx, "POST", o.url+"/api/show", bytes.NewReader(showBody))
+	if err == nil {
+		showReq.Header.Set("Content-Type", "application/json")
+		if resp, err := o.client.Do(showReq); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var show struct {
+					Details struct {
+						Format            string `json:"format"`
+						Family            string `json:"family"`
+						ParameterSize     string `json:"parameter_size"`
+						QuantizationLevel string `json:"quantization_level"`
+					} `json:"details"`
+					License string `json:"license"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&show) == nil {
+					identity.Family = show.Details.Family
+					identity.ParameterSize = show.Details.ParameterSize
+					identity.Quantization = show.Details.QuantizationLevel
+					identity.Format = show.Details.Format
+					if len(show.License) > 200 {
+						show.License = show.License[:200]
+					}
+					identity.License = show.License
+				}
+			}
+		}
+	}
+
+	// Digest from /api/tags
+	identity.Digest = o.ollamaDigest(ctx)
+
+	return identity, nil
+}
+
+// ollamaVersion fetches the Ollama server version.
+func (o *Ollama) ollamaVersion(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", o.url+"/api/version", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var v struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return "", err
+	}
+	return v.Version, nil
+}
+
+// ollamaDigest returns the SHA256 digest for the configured model from /api/tags.
+func (o *Ollama) ollamaDigest(ctx context.Context) string {
+	req, err := http.NewRequestWithContext(ctx, "GET", o.url+"/api/tags", nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var tags struct {
+		Models []struct {
+			Name   string `json:"name"`
+			Digest string `json:"digest"`
+		} `json:"models"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&tags) != nil {
+		return ""
+	}
+	for _, m := range tags.Models {
+		name := m.Name
+		base := name
+		if idx := len(name) - len(":latest"); idx > 0 && name[idx:] == ":latest" {
+			base = name[:idx]
+		}
+		if name == o.model || base == o.model {
+			return m.Digest
+		}
+	}
+	return ""
+}
+
 func formatModelList(models []string) string {
 	result := ""
 	for i, m := range models {

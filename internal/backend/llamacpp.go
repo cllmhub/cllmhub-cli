@@ -326,6 +326,45 @@ func (l *LlamaCpp) ListModels(ctx context.Context) ([]string, error) {
 	return nil, nil
 }
 
+// ModelInfo returns provenance metadata from llama.cpp.
+// Uses the /props endpoint to get the loaded GGUF file path, then computes
+// a SHA256 hash of the file so customers can verify model integrity.
+func (l *LlamaCpp) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
+	identity := &ModelIdentity{Engine: "llama.cpp", Format: "gguf"}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", l.url+"/props", nil)
+	if err != nil {
+		return identity, nil
+	}
+	resp, err := l.client.Do(req)
+	if err != nil {
+		return identity, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return identity, nil
+	}
+
+	var props struct {
+		DefaultGenerationSettings struct {
+			Model string `json:"model"`
+		} `json:"default_generation_settings"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&props) != nil || props.DefaultGenerationSettings.Model == "" {
+		return identity, nil
+	}
+
+	identity.Source = props.DefaultGenerationSettings.Model
+
+	// Compute SHA256 of the GGUF file for integrity verification.
+	if digest := hashFile(props.DefaultGenerationSettings.Model); digest != "" {
+		identity.Digest = digest
+	}
+
+	return identity, nil
+}
+
 // Health checks if llama.cpp server is available
 func (l *LlamaCpp) Health(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", l.url+"/health", nil)

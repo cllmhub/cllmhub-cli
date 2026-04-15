@@ -373,6 +373,35 @@ func (m *MLX) ListModels(ctx context.Context) ([]string, error) {
 	return models, nil
 }
 
+// ModelInfo returns provenance metadata from MLX.
+// Queries /v1/models for the actual loaded model ID (typically a HuggingFace repo
+// path like "mlx-community/Llama-3-8B-4bit") rather than trusting the user-provided name.
+// Resolves the HuggingFace revision hash from the local cache as the digest.
+func (m *MLX) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
+	identity := &ModelIdentity{Engine: "mlx"}
+
+	// Query the engine for the actual loaded model ID.
+	if models, err := m.ListModels(ctx); err == nil && len(models) > 0 {
+		source := models[0]
+		for _, mod := range models {
+			if mod == m.model {
+				source = mod
+				break
+			}
+		}
+		identity.Source = source
+
+		// Resolve HuggingFace revision hash from local cache.
+		if rev := huggingFaceRevision(source); rev != "" {
+			identity.Digest = rev
+		}
+	} else {
+		identity.Source = m.model
+	}
+
+	return identity, nil
+}
+
 // Health checks if the mlx-lm server is available
 func (m *MLX) Health(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", m.url+"/v1/models", nil)

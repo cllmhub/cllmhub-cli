@@ -107,6 +107,20 @@ type HubClient struct {
 	wsMu sync.Mutex
 }
 
+// ModelIdentity contains provenance and integrity metadata for a model.
+// Sent during registration so the hub can expose it to customers.
+type ModelIdentity struct {
+	Family        string `json:"family,omitempty"`
+	ParameterSize string `json:"parameter_size,omitempty"`
+	Quantization  string `json:"quantization,omitempty"`
+	Format        string `json:"format,omitempty"`
+	Source        string `json:"source,omitempty"`
+	License       string `json:"license,omitempty"`
+	Digest        string `json:"digest,omitempty"`
+	Engine        string `json:"engine"`
+	EngineVersion string `json:"engine_version,omitempty"`
+}
+
 // ConnectConfig holds parameters for connecting to the hub.
 type ConnectConfig struct {
 	HubURL        string
@@ -116,6 +130,7 @@ type ConnectConfig struct {
 	Description   string
 	MaxConcurrent int
 	Token         string
+	Identity      *ModelIdentity
 }
 
 // Connect dials the gateway WebSocket, sends a register message, and waits for confirmation.
@@ -169,6 +184,9 @@ func Connect(cfg ConnectConfig) (*HubClient, error) {
 		"description":    cfg.Description,
 		"max_concurrent": cfg.MaxConcurrent,
 		"token":          cfg.Token,
+	}
+	if cfg.Identity != nil {
+		reg["model_identity"] = cfg.Identity
 	}
 
 	log.Printf("[hub] Sending register for provider=%s model=%s backend=%s", cfg.ProviderID, cfg.Model, cfg.Backend)
@@ -309,12 +327,13 @@ func (c *HubClient) UpdateMaxConcurrent(maxConcurrent int) error {
 
 // SendHeartbeat sends a heartbeat to the gateway.
 func (c *HubClient) SendHeartbeat(queueDepth int, gpuUtil float64) error {
-	return c.SendHeartbeatWithToken(queueDepth, gpuUtil, "")
+	return c.SendHeartbeatWithToken(queueDepth, gpuUtil, "", "")
 }
 
 // SendHeartbeatWithToken sends a heartbeat that includes a fresh access token.
 // When token is non-empty, the gateway uses it to update the session credential.
-func (c *HubClient) SendHeartbeatWithToken(queueDepth int, gpuUtil float64, token string) error {
+// When digest is non-empty, the gateway can verify model integrity hasn't changed.
+func (c *HubClient) SendHeartbeatWithToken(queueDepth int, gpuUtil float64, token, digest string) error {
 	msg := map[string]interface{}{
 		"type":        MsgTypeHeartbeat,
 		"provider_id": c.providerID,
@@ -324,6 +343,9 @@ func (c *HubClient) SendHeartbeatWithToken(queueDepth int, gpuUtil float64, toke
 	}
 	if token != "" {
 		msg["token"] = token
+	}
+	if digest != "" {
+		msg["digest"] = digest
 	}
 	return c.writeJSON(msg)
 }

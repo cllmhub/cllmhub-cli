@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -371,6 +373,38 @@ func (l *LMStudio) ListModels(ctx context.Context) ([]string, error) {
 		models = append(models, m.ID)
 	}
 	return models, nil
+}
+
+// ModelInfo returns provenance metadata from LM Studio.
+// Queries /v1/models for the actual loaded model ID (which encodes the GGUF
+// file path, e.g. "publisher/repo/file.Q4_K_M.gguf"). Attempts to locate
+// the file on disk and compute a SHA256 hash.
+func (l *LMStudio) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
+	identity := &ModelIdentity{Engine: "lmstudio", Format: "gguf"}
+
+	// Query the engine for the actual loaded model ID.
+	if models, err := l.ListModels(ctx); err == nil && len(models) > 0 {
+		source := models[0]
+		for _, m := range models {
+			if m == l.model {
+				source = m
+				break
+			}
+		}
+		identity.Source = source
+
+		// LM Studio stores models in ~/.cache/lm-studio/models/<model-id>.
+		if home, err := os.UserHomeDir(); err == nil {
+			path := filepath.Join(home, ".cache", "lm-studio", "models", source)
+			if digest := hashFile(path); digest != "" {
+				identity.Digest = digest
+			}
+		}
+	} else {
+		identity.Source = l.model
+	}
+
+	return identity, nil
 }
 
 // Health checks if LM Studio is available

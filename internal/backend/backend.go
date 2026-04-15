@@ -10,6 +10,29 @@ import (
 	"syscall"
 )
 
+// ModelIdentity contains provenance and integrity metadata for a model.
+// Collected at publish time and sent to the hub so customers can verify
+// what model a provider is actually running.
+type ModelIdentity struct {
+	// What is this model?
+	Family        string `json:"family,omitempty"`
+	ParameterSize string `json:"parameter_size,omitempty"`
+	Quantization  string `json:"quantization,omitempty"`
+	Format        string `json:"format,omitempty"`
+
+	// Where did it come from?
+	Source  string `json:"source,omitempty"`
+	License string `json:"license,omitempty"`
+
+	// Integrity proof — content-addressable hash of the model weights/manifest.
+	// Customers can independently verify this against the official source.
+	Digest string `json:"digest,omitempty"`
+
+	// Engine serving the model
+	Engine        string `json:"engine"`
+	EngineVersion string `json:"engine_version,omitempty"`
+}
+
 // Backend defines the interface for LLM inference backends
 type Backend interface {
 	// Name returns the backend type name
@@ -31,6 +54,9 @@ type Backend interface {
 	// Returns nil, nil if the backend does not support listing.
 	ListModels(ctx context.Context) ([]string, error)
 
+	// ModelInfo returns provenance and integrity metadata for the configured model.
+	// Returns best-effort data — fields may be empty if the engine doesn't expose them.
+	ModelInfo(ctx context.Context) (*ModelIdentity, error)
 }
 
 // Request represents an inference request to a backend

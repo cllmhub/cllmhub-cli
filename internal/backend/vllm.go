@@ -399,6 +399,66 @@ func (v *VLLM) ListModels(ctx context.Context) ([]string, error) {
 	return models, nil
 }
 
+// ModelInfo returns provenance metadata from vLLM.
+// Queries /v1/models for the actual loaded model ID (typically a HuggingFace repo
+// path like "meta-llama/Llama-3-8B") rather than trusting the user-provided name.
+// Resolves the HuggingFace revision hash from the local cache as the digest.
+func (v *VLLM) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
+	identity := &ModelIdentity{Engine: "vllm"}
+
+	// Query the engine for the actual loaded model ID.
+	if models, err := v.ListModels(ctx); err == nil && len(models) > 0 {
+		// Use the first model that matches, or fall back to the first available.
+		source := models[0]
+		for _, m := range models {
+			if m == v.model {
+				source = m
+				break
+			}
+		}
+		identity.Source = source
+
+		// Resolve HuggingFace revision hash from local cache.
+		if rev := huggingFaceRevision(source); rev != "" {
+			identity.Digest = rev
+		}
+	} else {
+		identity.Source = v.model
+	}
+
+	// Engine version from /version
+	if ver, err := v.vllmVersion(ctx); err == nil {
+		identity.EngineVersion = ver
+	}
+
+	return identity, nil
+}
+
+func (v *VLLM) vllmVersion(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", v.url+"/version", nil)
+	if err != nil {
+		return "", err
+	}
+	if v.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+v.apiKey)
+	}
+	resp, err := v.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("vllm /version returned status %d", resp.StatusCode)
+	}
+	var ver struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ver); err != nil {
+		return "", err
+	}
+	return ver.Version, nil
+}
+
 // Health checks if vLLM is available
 func (v *VLLM) Health(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", v.url+"/v1/models", nil)
