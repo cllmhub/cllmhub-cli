@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	defaultMaxSlots = 5 // default ceiling for concurrent slots
+	defaultMaxSlots = 3 // default ceiling for concurrent slots
 	// Number of consecutive successes at current max before increasing slots.
 	rampUpThreshold = 3
 	// Cooldown after a slot reduction before allowing increases.
@@ -70,7 +70,7 @@ type Config struct {
 	HubURL        string
 	LogFile       string
 	RateLimit     int // requests per minute, 0 = unlimited
-	MaxConcurrent int // optional ceiling hint; 0 = use default (5)
+	MaxConcurrent int // optional ceiling hint; 0 = use default (3)
 	TokenManager  *auth.TokenManager
 	Logger        *slog.Logger // optional; if nil, prints to stdout
 	Watch         bool         // proactively watch backend health

@@ -50,7 +50,7 @@ func init() {
 	publishCmd.Flags().StringVar(&publishBackendURL, "backend-url", "", "Backend endpoint URL (overrides default for the backend type)")
 	publishCmd.Flags().StringVar(&publishBackendAPIKey, "api-key", "", "API key for the backend server")
 	publishCmd.Flags().StringVarP(&publishDescription, "description", "d", "", "Model description")
-	publishCmd.Flags().IntVar(&publishMaxConcurrent, "max-concurrent", 0, "Max concurrent slots ceiling (default: auto-detect, starting at 1, max 5)")
+	publishCmd.Flags().IntVar(&publishMaxConcurrent, "max-concurrent", 0, "Max concurrent slots ceiling (default: auto-detect, starting at 1, max 3)")
 }
 
 func runPublish(cmd *cobra.Command, args []string) error {
