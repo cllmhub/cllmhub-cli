@@ -31,6 +31,10 @@ type ModelIdentity struct {
 	// Engine serving the model
 	Engine        string `json:"engine"`
 	EngineVersion string `json:"engine_version,omitempty"`
+
+	// Maximum context window (in tokens) the loaded model can handle.
+	// Reported by the engine; 0 when unknown.
+	ContextLength int `json:"context_length,omitempty"`
 }
 
 // Backend defines the interface for LLM inference backends

@@ -520,7 +520,8 @@ func (o *Ollama) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 						ParameterSize     string `json:"parameter_size"`
 						QuantizationLevel string `json:"quantization_level"`
 					} `json:"details"`
-					License string `json:"license"`
+					License   string                 `json:"license"`
+					ModelInfo map[string]interface{} `json:"model_info"`
 				}
 				if json.NewDecoder(resp.Body).Decode(&show) == nil {
 					identity.Family = show.Details.Family
@@ -531,6 +532,7 @@ func (o *Ollama) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 						show.License = show.License[:200]
 					}
 					identity.License = show.License
+					identity.ContextLength = ollamaContextLength(show.ModelInfo)
 				}
 			}
 		}
@@ -540,6 +542,30 @@ func (o *Ollama) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 	identity.Digest = o.ollamaDigest(ctx)
 
 	return identity, nil
+}
+
+// ollamaContextLength extracts the context window from Ollama's model_info.
+// Keys are namespaced by architecture (e.g. "llama.context_length",
+// "qwen2.context_length"), so we scan for any "*.context_length".
+func ollamaContextLength(modelInfo map[string]interface{}) int {
+	for k, v := range modelInfo {
+		if !strings.HasSuffix(k, ".context_length") {
+			continue
+		}
+		switch n := v.(type) {
+		case float64:
+			return int(n)
+		case int:
+			return n
+		case int64:
+			return int(n)
+		case json.Number:
+			if i, err := n.Int64(); err == nil {
+				return int(i)
+			}
+		}
+	}
+	return 0
 }
 
 // ollamaVersion fetches the Ollama server version.

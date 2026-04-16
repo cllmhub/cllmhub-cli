@@ -119,6 +119,7 @@ type ModelIdentity struct {
 	Digest        string `json:"digest,omitempty"`
 	Engine        string `json:"engine"`
 	EngineVersion string `json:"engine_version,omitempty"`
+	ContextLength int    `json:"context_length,omitempty"`
 }
 
 // ConnectConfig holds parameters for connecting to the hub.

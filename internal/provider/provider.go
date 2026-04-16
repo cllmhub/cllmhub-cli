@@ -124,6 +124,7 @@ func New(cfg Config) (*Provider, error) {
 		Digest:        identity.Digest,
 		Engine:        identity.Engine,
 		EngineVersion: identity.EngineVersion,
+		ContextLength: identity.ContextLength,
 	}
 
 	hubCfg := hub.ConnectConfig{

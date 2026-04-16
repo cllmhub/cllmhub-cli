@@ -349,9 +349,21 @@ func (l *LlamaCpp) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 	var props struct {
 		DefaultGenerationSettings struct {
 			Model string `json:"model"`
+			NCtx  int    `json:"n_ctx"`
 		} `json:"default_generation_settings"`
+		NCtx int `json:"n_ctx"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&props) != nil || props.DefaultGenerationSettings.Model == "" {
+	if json.NewDecoder(resp.Body).Decode(&props) != nil {
+		return identity, nil
+	}
+
+	if ctxLen := props.DefaultGenerationSettings.NCtx; ctxLen > 0 {
+		identity.ContextLength = ctxLen
+	} else if props.NCtx > 0 {
+		identity.ContextLength = props.NCtx
+	}
+
+	if props.DefaultGenerationSettings.Model == "" {
 		return identity, nil
 	}
 

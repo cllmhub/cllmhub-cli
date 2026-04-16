@@ -363,8 +363,27 @@ func (v *VLLM) streamChat(ctx context.Context, req *Request, callback func(token
 	}, nil
 }
 
+// vllmModelEntry captures the fields we care about from /v1/models.
+type vllmModelEntry struct {
+	ID          string `json:"id"`
+	MaxModelLen int    `json:"max_model_len"`
+}
+
 // ListModels returns all models available in vLLM.
 func (v *VLLM) ListModels(ctx context.Context) ([]string, error) {
+	entries, err := v.listModelEntries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var models []string
+	for _, m := range entries {
+		models = append(models, m.ID)
+	}
+	return models, nil
+}
+
+// listModelEntries fetches /v1/models and returns full entry metadata.
+func (v *VLLM) listModelEntries(ctx context.Context) ([]vllmModelEntry, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", v.url+"/v1/models", nil)
 	if err != nil {
 		return nil, err
@@ -384,19 +403,12 @@ func (v *VLLM) ListModels(ctx context.Context) ([]string, error) {
 	}
 
 	var modelsResp struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+		Data []vllmModelEntry `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
 		return nil, fmt.Errorf("failed to parse vllm models: %w", err)
 	}
-
-	var models []string
-	for _, m := range modelsResp.Data {
-		models = append(models, m.ID)
-	}
-	return models, nil
+	return modelsResp.Data, nil
 }
 
 // ModelInfo returns provenance metadata from vLLM.
@@ -406,20 +418,23 @@ func (v *VLLM) ListModels(ctx context.Context) ([]string, error) {
 func (v *VLLM) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 	identity := &ModelIdentity{Engine: "vllm"}
 
-	// Query the engine for the actual loaded model ID.
-	if models, err := v.ListModels(ctx); err == nil && len(models) > 0 {
+	// Query the engine for the actual loaded model ID and context window.
+	if entries, err := v.listModelEntries(ctx); err == nil && len(entries) > 0 {
 		// Use the first model that matches, or fall back to the first available.
-		source := models[0]
-		for _, m := range models {
-			if m == v.model {
-				source = m
+		chosen := entries[0]
+		for _, m := range entries {
+			if m.ID == v.model {
+				chosen = m
 				break
 			}
 		}
-		identity.Source = source
+		identity.Source = chosen.ID
+		if chosen.MaxModelLen > 0 {
+			identity.ContextLength = chosen.MaxModelLen
+		}
 
 		// Resolve HuggingFace revision hash from local cache.
-		if rev := huggingFaceRevision(source); rev != "" {
+		if rev := huggingFaceRevision(chosen.ID); rev != "" {
 			identity.Digest = rev
 		}
 	} else {
