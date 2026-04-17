@@ -506,7 +506,7 @@ func (o *Ollama) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 	}
 
 	// Model details from /api/show
-	showBody, _ := json.Marshal(map[string]string{"name": o.model})
+	showBody, _ := json.Marshal(map[string]interface{}{"name": o.model, "verbose": true})
 	showReq, err := http.NewRequestWithContext(ctx, "POST", o.url+"/api/show", bytes.NewReader(showBody))
 	if err == nil {
 		showReq.Header.Set("Content-Type", "application/json")
@@ -538,10 +538,77 @@ func (o *Ollama) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 		}
 	}
 
+	// Runtime context length from /api/ps (reflects num_ctx, not the
+	// architectural ceiling). If the model isn't loaded yet, warm it up
+	// first so the runtime value is available.
+	if rt := o.ollamaRuntimeContext(ctx); rt > 0 {
+		identity.ContextLength = rt
+	} else if o.ollamaWarmup(ctx) {
+		if rt := o.ollamaRuntimeContext(ctx); rt > 0 {
+			identity.ContextLength = rt
+		}
+	}
+
 	// Digest from /api/tags
 	identity.Digest = o.ollamaDigest(ctx)
 
 	return identity, nil
+}
+
+// ollamaRuntimeContext queries /api/ps for the runtime context length of the
+// currently loaded model. Returns 0 if the model isn't loaded or the value
+// isn't present.
+func (o *Ollama) ollamaRuntimeContext(ctx context.Context) int {
+	req, err := http.NewRequestWithContext(ctx, "GET", o.url+"/api/ps", nil)
+	if err != nil {
+		return 0
+	}
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+	var ps struct {
+		Models []struct {
+			Name          string `json:"name"`
+			Model         string `json:"model"`
+			ContextLength int    `json:"context_length"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ps); err != nil {
+		return 0
+	}
+	for _, m := range ps.Models {
+		if m.Name == o.model || m.Model == o.model {
+			return m.ContextLength
+		}
+	}
+	return 0
+}
+
+// ollamaWarmup forces Ollama to load the model by sending an empty prompt to
+// /api/generate. Returns true when Ollama reports the model is ready.
+func (o *Ollama) ollamaWarmup(ctx context.Context) bool {
+	body, _ := json.Marshal(map[string]interface{}{
+		"model":  o.model,
+		"prompt": "",
+		"stream": false,
+	})
+	req, err := http.NewRequestWithContext(ctx, "POST", o.url+"/api/generate", bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode == http.StatusOK
 }
 
 // ollamaContextLength extracts the context window from Ollama's model_info.

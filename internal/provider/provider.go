@@ -91,8 +91,10 @@ func New(cfg Config) (*Provider, error) {
 		return nil, fmt.Errorf("backend health check failed: %w", err)
 	}
 
-	// Collect model provenance metadata from the backend.
-	infoCtx, infoCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Collect model provenance metadata from the backend. A longer timeout
+	// accommodates backends that warm up the model (e.g. Ollama) to report
+	// the runtime context length rather than the architectural ceiling.
+	infoCtx, infoCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	identity, _ := b.ModelInfo(infoCtx)
 	infoCancel()
 	if identity == nil {
@@ -195,7 +197,11 @@ func (p *Provider) Start(ctx context.Context) error {
 	p.logf("✓ Connected to cLLMHub network\n")
 	p.logf("✓ Model %q published as %s (slots: %d, ceiling: %d)\n", p.model, p.id, p.maxSlots, p.slotCeiling)
 	if p.identity != nil && p.identity.Digest != "" {
-		p.logf("✓ Model identity: digest=%s engine=%s/%s\n", p.identity.Digest[:16]+"…", p.identity.Engine, p.identity.EngineVersion)
+		if p.identity.ContextLength > 0 {
+			p.logf("✓ Model identity: digest=%s engine=%s/%s context=%d\n", p.identity.Digest[:16]+"…", p.identity.Engine, p.identity.EngineVersion, p.identity.ContextLength)
+		} else {
+			p.logf("✓ Model identity: digest=%s engine=%s/%s\n", p.identity.Digest[:16]+"…", p.identity.Engine, p.identity.EngineVersion)
+		}
 	}
 	p.logf("✓ Listening for requests via WebSocket\n")
 
