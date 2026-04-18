@@ -2,6 +2,7 @@ package backend
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -25,34 +26,65 @@ func hashFile(path string) string {
 	return fmt.Sprintf("sha256:%x", h.Sum(nil))
 }
 
-// huggingFaceRevision looks up the git revision hash for a HuggingFace model
-// in the local cache. The model ID should be in "org/name" format.
+// hfModelRevision returns the raw git revision hash of the "main" ref for a
+// HuggingFace model in the local cache. Returns "" if the model is not cached.
 //
 // Cache layout:
 //
 //	$HF_HOME/hub/models--org--name/refs/main   → contains commit hash
 //
 // Falls back to ~/.cache/huggingface/hub/ if HF_HOME is unset.
-func huggingFaceRevision(modelID string) string {
+func hfModelRevision(modelID string) string {
 	cacheDir := hfCacheDir()
 	if cacheDir == "" {
 		return ""
 	}
-
-	// Convert "org/name" to "models--org--name"
 	sanitized := "models--" + strings.ReplaceAll(modelID, "/", "--")
-	refPath := filepath.Join(cacheDir, sanitized, "refs", "main")
-
-	data, err := os.ReadFile(refPath)
+	data, err := os.ReadFile(filepath.Join(cacheDir, sanitized, "refs", "main"))
 	if err != nil {
 		return ""
 	}
+	return strings.TrimSpace(string(data))
+}
 
-	rev := strings.TrimSpace(string(data))
+// huggingFaceRevision returns the revision hash prefixed with "hf:" for use as
+// an opaque digest in ModelIdentity.
+func huggingFaceRevision(modelID string) string {
+	rev := hfModelRevision(modelID)
 	if rev == "" {
 		return ""
 	}
 	return "hf:" + rev
+}
+
+// huggingFaceContextLength reads max_position_embeddings from the cached
+// config.json for a HuggingFace model. Returns 0 if the model is not cached
+// or the field is missing.
+func huggingFaceContextLength(modelID string) int {
+	rev := hfModelRevision(modelID)
+	if rev == "" {
+		return 0
+	}
+	sanitized := "models--" + strings.ReplaceAll(modelID, "/", "--")
+	path := filepath.Join(hfCacheDir(), sanitized, "snapshots", rev, "config.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	var cfg struct {
+		MaxPositionEmbeddings int `json:"max_position_embeddings"`
+		TextConfig            struct {
+			MaxPositionEmbeddings int `json:"max_position_embeddings"`
+		} `json:"text_config"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return 0
+	}
+	if cfg.MaxPositionEmbeddings > 0 {
+		return cfg.MaxPositionEmbeddings
+	}
+	// Multimodal models (e.g., Gemma-4, LLaVA) nest the text context under text_config.
+	return cfg.TextConfig.MaxPositionEmbeddings
 }
 
 // hfCacheDir returns the HuggingFace hub cache directory.

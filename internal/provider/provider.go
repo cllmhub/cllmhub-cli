@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -196,12 +197,8 @@ func (p *Provider) Start(ctx context.Context) error {
 
 	p.logf("✓ Connected to cLLMHub network\n")
 	p.logf("✓ Model %q published as %s (slots: %d, ceiling: %d)\n", p.model, p.id, p.maxSlots, p.slotCeiling)
-	if p.identity != nil && p.identity.Digest != "" {
-		if p.identity.ContextLength > 0 {
-			p.logf("✓ Model identity: digest=%s engine=%s/%s context=%d\n", p.identity.Digest[:16]+"…", p.identity.Engine, p.identity.EngineVersion, p.identity.ContextLength)
-		} else {
-			p.logf("✓ Model identity: digest=%s engine=%s/%s\n", p.identity.Digest[:16]+"…", p.identity.Engine, p.identity.EngineVersion)
-		}
+	if line := identityLog(p.identity); line != "" {
+		p.logf("✓ Model identity: %s\n", line)
 	}
 	p.logf("✓ Listening for requests via WebSocket\n")
 
@@ -762,6 +759,33 @@ func (p *Provider) Status() ProviderStatus {
 		GPUUtil:       0,
 		Timestamp:     time.Now(),
 	}
+}
+
+// identityLog formats the non-empty fields of a ModelIdentity for startup
+// logging. Returns "" when nothing interesting is known.
+func identityLog(id *backend.ModelIdentity) string {
+	if id == nil {
+		return ""
+	}
+	var parts []string
+	if id.Digest != "" {
+		digest := id.Digest
+		if len(digest) > 17 {
+			digest = digest[:16] + "…"
+		}
+		parts = append(parts, "digest="+digest)
+	}
+	if id.Engine != "" {
+		engine := id.Engine
+		if id.EngineVersion != "" {
+			engine += "/" + id.EngineVersion
+		}
+		parts = append(parts, "engine="+engine)
+	}
+	if id.ContextLength > 0 {
+		parts = append(parts, fmt.Sprintf("context=%d", id.ContextLength))
+	}
+	return strings.Join(parts, " ")
 }
 
 // logf prints to stdout or logs via slog if a logger is configured.

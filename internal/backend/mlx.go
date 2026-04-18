@@ -395,6 +395,12 @@ func (m *MLX) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 		if rev := huggingFaceRevision(source); rev != "" {
 			identity.Digest = rev
 		}
+
+		// mlx_lm.server has no context-clip flag, so the model's native
+		// max_position_embeddings is the runtime context.
+		if n := huggingFaceContextLength(source); n > 0 {
+			identity.ContextLength = n
+		}
 	} else {
 		identity.Source = m.model
 	}

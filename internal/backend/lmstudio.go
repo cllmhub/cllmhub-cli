@@ -375,14 +375,85 @@ func (l *LMStudio) ListModels(ctx context.Context) ([]string, error) {
 	return models, nil
 }
 
-// ModelInfo returns provenance metadata from LM Studio.
-// Queries /v1/models for the actual loaded model ID (which encodes the GGUF
-// file path, e.g. "publisher/repo/file.Q4_K_M.gguf"). Attempts to locate
-// the file on disk and compute a SHA256 hash.
-func (l *LMStudio) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
-	identity := &ModelIdentity{Engine: "lmstudio", Format: "gguf"}
+// lmstudioModelInfo is an entry from LM Studio's extended REST API
+// (/api/v0/models). Unlike the OpenAI-compatible /v1/models, this endpoint
+// exposes quantization, architecture, and context-length fields.
+type lmstudioModelInfo struct {
+	ID                  string `json:"id"`
+	Type                string `json:"type"`
+	Publisher           string `json:"publisher"`
+	Arch                string `json:"arch"`
+	CompatibilityType   string `json:"compatibility_type"`
+	Quantization        string `json:"quantization"`
+	State               string `json:"state"`
+	MaxContextLength    int    `json:"max_context_length"`
+	LoadedContextLength int    `json:"loaded_context_length"`
+}
 
-	// Query the engine for the actual loaded model ID.
+// lmstudioExtendedModels queries LM Studio's /api/v0/models endpoint. It
+// returns nil when the endpoint is unavailable (older LM Studio builds).
+func (l *LMStudio) lmstudioExtendedModels(ctx context.Context) ([]lmstudioModelInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", l.url+"/api/v0/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	if l.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+l.apiKey)
+	}
+	resp, err := l.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("lmstudio /api/v0/models returned status %d", resp.StatusCode)
+	}
+	var body struct {
+		Data []lmstudioModelInfo `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	return body.Data, nil
+}
+
+// ModelInfo returns provenance metadata from LM Studio. Uses the extended
+// /api/v0/models endpoint when available to report quantization, architecture,
+// and the runtime context length; falls back to /v1/models for the ID only.
+func (l *LMStudio) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
+	identity := &ModelIdentity{Engine: "lmstudio"}
+
+	if extended, err := l.lmstudioExtendedModels(ctx); err == nil && len(extended) > 0 {
+		var match *lmstudioModelInfo
+		for i := range extended {
+			if extended[i].ID == l.model {
+				match = &extended[i]
+				break
+			}
+		}
+		if match == nil {
+			match = &extended[0]
+		}
+		identity.Source = match.ID
+		identity.Family = match.Arch
+		identity.Quantization = match.Quantization
+		if match.CompatibilityType != "" {
+			identity.Format = match.CompatibilityType
+		} else {
+			identity.Format = "gguf"
+		}
+		// Prefer the loaded context length (reflects the runtime ceiling the
+		// user configured in LM Studio); fall back to the architectural max.
+		if match.LoadedContextLength > 0 {
+			identity.ContextLength = match.LoadedContextLength
+		} else if match.MaxContextLength > 0 {
+			identity.ContextLength = match.MaxContextLength
+		}
+		identity.Digest = lmstudioDigest(match.ID)
+		return identity, nil
+	}
+
+	identity.Format = "gguf"
 	if models, err := l.ListModels(ctx); err == nil && len(models) > 0 {
 		source := models[0]
 		for _, m := range models {
@@ -392,19 +463,44 @@ func (l *LMStudio) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 			}
 		}
 		identity.Source = source
-
-		// LM Studio stores models in ~/.cache/lm-studio/models/<model-id>.
-		if home, err := os.UserHomeDir(); err == nil {
-			path := filepath.Join(home, ".cache", "lm-studio", "models", source)
-			if digest := hashFile(path); digest != "" {
-				identity.Digest = digest
-			}
-		}
+		identity.Digest = lmstudioDigest(source)
 	} else {
 		identity.Source = l.model
 	}
 
 	return identity, nil
+}
+
+// lmstudioDigest attempts to produce an integrity digest for an LM Studio
+// model ID. LM Studio stores models under ~/.cache/lm-studio/models/<id>;
+// when that path is a directory (publisher/repo layout) we hash the first
+// .gguf file inside it.
+func lmstudioDigest(modelID string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(home, ".cache", "lm-studio", "models", modelID)
+	if digest := hashFile(path); digest != "" {
+		return digest
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".gguf") {
+			continue
+		}
+		if digest := hashFile(filepath.Join(path, e.Name())); digest != "" {
+			return digest
+		}
+	}
+	return ""
 }
 
 // Health checks if LM Studio is available
