@@ -431,6 +431,8 @@ func (v *VLLM) ModelInfo(ctx context.Context) (*ModelIdentity, error) {
 		identity.Source = chosen.ID
 		if chosen.MaxModelLen > 0 {
 			identity.ContextLength = chosen.MaxModelLen
+		} else if n := huggingFaceContextLength(chosen.ID); n > 0 {
+			identity.ContextLength = n
 		}
 
 		// Resolve HuggingFace revision hash from local cache.
