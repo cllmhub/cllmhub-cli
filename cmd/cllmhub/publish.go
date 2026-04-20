@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	"github.com/cllmhub/cllmhub-cli/internal/daemon"
+	"github.com/cllmhub/cllmhub-cli/internal/localmodels"
 	"github.com/cllmhub/cllmhub-cli/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -93,11 +94,11 @@ type publishableModel struct {
 func listAllPublishable() []publishableModel {
 	var all []publishableModel
 
-	for _, e := range listLocalModels() {
+	for _, e := range localmodels.List() {
 		all = append(all, publishableModel{
-			name:   e.name,
-			source: e.backend,
-			label:  fmt.Sprintf("%s (%s)", e.name, e.backend),
+			name:   e.Name,
+			source: e.Backend,
+			label:  fmt.Sprintf("%s (%s)", e.Name, e.Backend),
 		})
 	}
 

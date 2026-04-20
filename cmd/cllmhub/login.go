@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/cllmhub/cllmhub-cli/internal/auth"
-	"github.com/cllmhub/cllmhub-cli/internal/backend"
 	"github.com/cllmhub/cllmhub-cli/internal/daemon"
+	"github.com/cllmhub/cllmhub-cli/internal/localmodels"
 	"github.com/cllmhub/cllmhub-cli/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -130,16 +130,16 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	fmt.Println("\nAuthenticated successfully!")
 
 	// Try to list models from local backends for quick publish.
-	if entries := listLocalModels(); len(entries) > 0 {
+	if entries := localmodels.List(); len(entries) > 0 {
 		labels := make([]string, len(entries))
 		for i, e := range entries {
-			labels[i] = fmt.Sprintf("%s (%s)", e.name, e.backend)
+			labels[i] = fmt.Sprintf("%s (%s)", e.Name, e.Backend)
 		}
 		fmt.Println()
 		idx := tui.Select("Select a model to publish (or Esc to skip):", labels)
 		if idx >= 0 {
 			selected := entries[idx]
-			return publishViaDaemon(selected.name, selected.backend, "", "", "", 0)
+			return publishViaDaemon(selected.Name, selected.Backend, "", "", "", 0)
 		}
 	} else {
 		fmt.Println()
@@ -148,48 +148,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// modelEntry holds a model name and the backend it came from.
-type modelEntry struct {
-	name    string
-	backend string
-}
-
-// listLocalModels queries Ollama, vLLM, LM Studio, and MLX for available models.
-// Returns all models found across all backends. None of these local backends
-// require authentication to list models.
-func listLocalModels() []modelEntry {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	type probe struct {
-		name    string
-		newFunc func(backend.Config) (backend.Backend, error)
-	}
-	probes := []probe{
-		{"ollama", func(c backend.Config) (backend.Backend, error) { return backend.NewOllama(c) }},
-		{"vllm", func(c backend.Config) (backend.Backend, error) { return backend.NewVLLM(c) }},
-		{"lmstudio", func(c backend.Config) (backend.Backend, error) { return backend.NewLMStudio(c) }},
-		{"mlx", func(c backend.Config) (backend.Backend, error) { return backend.NewMLX(c) }},
-	}
-
-	var entries []modelEntry
-	for _, p := range probes {
-		b, err := p.newFunc(backend.Config{})
-		if err != nil {
-			continue
-		}
-		models, err := b.ListModels(ctx)
-		if err != nil {
-			continue
-		}
-		for _, m := range models {
-			entries = append(entries, modelEntry{name: m, backend: p.name})
-		}
-	}
-
-	return entries
 }
 
 // fetchCurrentUsername tries to get the username from the hub. Returns empty string on any failure.
