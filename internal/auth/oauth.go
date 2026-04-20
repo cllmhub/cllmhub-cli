@@ -50,8 +50,8 @@ func (e *PermanentOAuthError) Error() string {
 
 // permanentOAuthErrors lists OAuth error codes that are not worth retrying.
 var permanentOAuthErrors = map[string]bool{
-	"invalid_grant":  true,
-	"invalid_client": true,
+	"invalid_grant":       true,
+	"invalid_client":      true,
 	"unauthorized_client": true,
 }
 

@@ -201,7 +201,6 @@ func (d *Daemon) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/stop", d.handleStop)
 	mux.HandleFunc("POST /api/publish", d.handlePublish)
 	mux.HandleFunc("POST /api/unpublish", d.handleUnpublish)
-	mux.HandleFunc("POST /api/reauth", d.handleReauth)
 }
 
 func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -336,22 +335,6 @@ func (d *Daemon) handleUnpublish(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
-}
-
-func (d *Daemon) handleReauth(w http.ResponseWriter, r *http.Request) {
-	published := d.bridges.PublishedModels()
-	if len(published) > 0 {
-		d.logger.Info("reauth: stopping all bridges for credential refresh", "models", published)
-		d.bridges.StopAll()
-		d.bridges.ResumeAutoStop()
-	}
-
-	d.logger.Info("reauth: credentials refreshed, ready for new publishes")
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":      "ok",
-		"unpublished": published,
-	})
 }
 
 func (d *Daemon) shutdown() {

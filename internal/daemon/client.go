@@ -161,22 +161,6 @@ func (c *Client) Publish(specs []PublishModelSpec) (*PublishResponse, error) {
 	return &result, nil
 }
 
-// Reauth tells the daemon that credentials have changed. The daemon stops all
-// running bridges so the next publish uses the new user's tokens.
-func (c *Client) Reauth() error {
-	resp, err := c.doRequest("POST", "http://daemon/api/reauth", nil)
-	if err != nil {
-		return fmt.Errorf("cannot connect to daemon: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("reauth failed: %s", string(data))
-	}
-	return nil
-}
-
 // Unpublish requests the daemon to unpublish one or more models.
 func (c *Client) Unpublish(modelNames []string) (*PublishResponse, error) {
 	body, _ := json.Marshal(UnpublishRequest{Models: modelNames})

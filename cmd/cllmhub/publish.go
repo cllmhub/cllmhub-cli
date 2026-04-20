@@ -93,11 +93,7 @@ type publishableModel struct {
 func listAllPublishable() []publishableModel {
 	var all []publishableModel
 
-	for _, e := range listLocalModels(publishBackendAPIKey) {
-		if e.needsKey {
-			fmt.Printf("  ⚠ %s server detected but requires authentication — use: --api-key <key>\n", e.backend)
-			continue
-		}
+	for _, e := range listLocalModels() {
 		all = append(all, publishableModel{
 			name:   e.name,
 			source: e.backend,
