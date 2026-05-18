@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,6 +14,17 @@ import (
 	"strings"
 	"time"
 )
+
+// wrapDaemonErr produces a clearer error for a failed daemon request.
+// Timeout errors are disambiguated from connection failures because the
+// daemon may still be processing the request in the background.
+func wrapDaemonErr(op string, err error) error {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return fmt.Errorf("daemon did not respond in time while %s — it may still be working in the background; run 'cllmhub status' to check", op)
+	}
+	return fmt.Errorf("cannot connect to daemon: %w", err)
+}
 
 // Client communicates with the daemon over the Unix socket.
 type Client struct {
@@ -42,7 +54,7 @@ func NewClient() (*Client, error) {
 					return net.DialTimeout("unix", sockPath, 5*time.Second)
 				},
 			},
-			Timeout: 10 * time.Second,
+			Timeout: 15 * time.Second,
 		},
 	}, nil
 }
@@ -115,7 +127,7 @@ func (c *Client) Health() error {
 func (c *Client) Status() (*StatusResponse, error) {
 	resp, err := c.doRequest("GET", "http://daemon/api/status", nil)
 	if err != nil {
-		return nil, fmt.Errorf("cannot connect to daemon: %w", err)
+		return nil, wrapDaemonErr("fetching status", err)
 	}
 	defer resp.Body.Close()
 
@@ -130,7 +142,7 @@ func (c *Client) Status() (*StatusResponse, error) {
 func (c *Client) Stop() error {
 	resp, err := c.doRequest("POST", "http://daemon/api/stop", nil)
 	if err != nil {
-		return fmt.Errorf("cannot connect to daemon: %w", err)
+		return wrapDaemonErr("stopping daemon", err)
 	}
 	defer resp.Body.Close()
 
@@ -145,7 +157,7 @@ func (c *Client) Publish(specs []PublishModelSpec) (*PublishResponse, error) {
 	body, _ := json.Marshal(PublishRequest{Models: specs})
 	resp, err := c.doRequest("POST", "http://daemon/api/publish", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("cannot connect to daemon: %w", err)
+		return nil, wrapDaemonErr("publishing", err)
 	}
 	defer resp.Body.Close()
 
@@ -166,7 +178,7 @@ func (c *Client) Unpublish(modelNames []string) (*PublishResponse, error) {
 	body, _ := json.Marshal(UnpublishRequest{Models: modelNames})
 	resp, err := c.doRequest("POST", "http://daemon/api/unpublish", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("cannot connect to daemon: %w", err)
+		return nil, wrapDaemonErr("unpublishing", err)
 	}
 	defer resp.Body.Close()
 
